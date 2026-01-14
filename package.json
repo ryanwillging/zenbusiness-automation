@@ -1,0 +1,36 @@
+{
+  "name": "zenbusiness-automation",
+  "version": "1.0.0",
+  "description": "Autonomous testing framework for ZenBusiness onboarding flows using Playwright and AI-powered vision testing",
+  "main": "zenbusiness-automation/testRunner.js",
+  "type": "module",
+  "scripts": {
+    "test": "node zenbusiness-automation/testRunner.js",
+    "test:llc": "node zenbusiness-automation/testRunner.js --only-llc",
+    "test:dba": "node zenbusiness-automation/testRunner.js --only-dba",
+    "test:corp": "node zenbusiness-automation/testRunner.js --only-corporation",
+    "test:nonprofit": "node zenbusiness-automation/testRunner.js --only-nonprofit",
+    "test:fast": "node zenbusiness-automation/testRunner.js --delay 0",
+    "test:ai": "node zenbusiness-automation/testRunner.js --ai-llc",
+    "test:turbo": "node zenbusiness-automation/fastTest.js",
+    "cache:stats": "node zenbusiness-automation/cache-manager.js stats",
+    "cache:show": "node zenbusiness-automation/cache-manager.js show",
+    "cache:clear": "node zenbusiness-automation/cache-manager.js clear"
+  },
+  "keywords": [
+    "playwright",
+    "zenbusiness",
+    "automation",
+    "e2e testing",
+    "ai testing",
+    "vision testing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "@browserbasehq/stagehand": "^3.0.7",
+    "playwright": "^1.40.0",
+    "zod": "^4.3.5"
+  }
+}
