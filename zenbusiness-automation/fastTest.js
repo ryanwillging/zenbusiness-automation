@@ -3,6 +3,7 @@
  * Uses Stagehand + AgentQL + Haiku for fast LLC formation testing
  */
 
+import 'dotenv/config';
 import { FastAgent } from './utils/fastAgent.js';
 import { generatePersona, generateBusinessDetails } from './utils/personaGenerator.js';
 

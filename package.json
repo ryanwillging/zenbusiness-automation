@@ -30,6 +30,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@browserbasehq/stagehand": "^3.0.7",
+    "dotenv": "^17.2.3",
     "playwright": "^1.40.0",
     "zod": "^4.3.5"
   }

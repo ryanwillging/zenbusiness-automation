@@ -35,16 +35,16 @@ export class FastAgent {
   async init() {
     console.log('🚀 Initializing FastAgent...');
 
-    // Initialize Stagehand in LOCAL mode with Anthropic Claude Haiku (faster, higher rate limits)
+    // Initialize Stagehand in LOCAL mode with OpenAI GPT-4o (Stagehand works better with OpenAI)
     this.stagehand = new Stagehand({
       env: 'LOCAL',
-      model: {
-        modelName: 'anthropic/claude-haiku-4-5-20251001',
-        apiKey: process.env.ANTHROPIC_API_KEY
+      modelName: 'gpt-4o',
+      modelClientOptions: {
+        apiKey: process.env.OPENAI_API_KEY
       },
       enableCaching: true,
       headless: false,
-      verbose: 1,
+      verbose: 0,
     });
 
     await this.stagehand.init();
@@ -56,12 +56,15 @@ export class FastAgent {
     // Create Stagehand agent for autonomous navigation
     try {
       this.agent = this.stagehand.agent({
-        model: 'anthropic/claude-haiku-4-5-20251001',
-        instructions: this.buildAgentInstructions()
+        modelName: 'gpt-4o',
+        modelClientOptions: {
+          apiKey: process.env.OPENAI_API_KEY
+        }
       });
-      console.log('   ✅ Stagehand agent mode enabled (Haiku)');
+      console.log('   ✅ Stagehand agent mode enabled (GPT-4o)');
     } catch (e) {
-      console.log(`   ⚠️ Stagehand agent mode not available: ${e.message}`);
+      this.agent = null;
+      console.log(`   ⚠️ Agent mode not available: ${e.message}`);
     }
 
     console.log('   ✅ FastAgent ready\n');
@@ -72,34 +75,28 @@ export class FastAgent {
    * Build instructions for the Stagehand agent with persona and business data
    */
   buildAgentInstructions() {
-    return `You are automating a ZenBusiness LLC formation flow.
+    return `ZenBusiness LLC automation. Fill forms with EXACT values, then click CTA.
 
-PERSONA INFORMATION (use these EXACT values when filling forms):
-- Full Name: ${this.persona.fullName}
-- First Name: ${this.persona.firstName}
-- Last Name: ${this.persona.lastName}
-- Email: ${this.persona.email}
-- Phone: ${this.persona.phone}
-- State: ${this.persona.state}
-- Address: ${this.persona.address?.street || '123 Main Street'}
-- City: ${this.persona.address?.city || 'Las Vegas'}
-- ZIP: ${this.persona.address?.zip || '89101'}
+DATA:
+Name: ${this.persona.firstName} ${this.persona.lastName}
+Email: ${this.persona.email}
+Phone: ${this.persona.phone}
+State: ${this.persona.state}
+Business: ${this.businessDetails.businessName}
+Address: ${this.persona.address?.street || '123 Main Street'}, ${this.persona.address?.city || 'Las Vegas'}, ${this.persona.address?.zip || '89101'}
 
-BUSINESS INFORMATION:
-- Business Name: ${this.businessDetails.businessName}
-- Business Type: ${this.businessDetails.businessType || 'LLC'}
-- Industry: ${this.businessDetails.industry || 'Technology'}
+CTA BUTTONS (click these to progress):
+- "Continue" (most common - blue button at bottom)
+- "Get started" (homepage)
+- "Create account" / "Sign up"
+- "Next"
+- "Submit"
 
-IMPORTANT INSTRUCTIONS:
-1. When you see a form field, fill it with the EXACT data provided above
-2. For state dropdowns, select "${this.persona.state}"
-3. For experience/stage questions, select reasonable default options
-4. Click Continue/Next/Submit buttons to progress
-5. If you see a CAPTCHA, STOP and wait (do not try to solve it)
-6. Do NOT create real accounts or submit real payment information
-7. Stop before any payment/checkout step
-
-Be efficient and use the fastest method to interact with each element.`;
+RULES:
+1. Fill ALL visible form fields, then click the CTA button
+2. For dropdowns: click to open, type to filter, click result
+3. For questions with options: select first reasonable choice
+4. STOP on CAPTCHA or payment pages`;
   }
 
   /**
@@ -115,7 +112,7 @@ Be efficient and use the fastest method to interact with each element.`;
   async goto(url) {
     console.log(`📍 Navigating to ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
-    await this.wait(1000);
+    await this.wait(300);
   }
 
   /**
@@ -136,7 +133,7 @@ Be efficient and use the fastest method to interact with each element.`;
   /**
    * Wait for manual CAPTCHA completion
    */
-  async waitForCaptcha(maxWait = 120000) {
+  async waitForCaptcha(maxWait = 180000) {
     if (!(await this.isOnCaptcha())) return;
 
     console.log('\n⏸️  CAPTCHA DETECTED - Complete it manually in the browser');
@@ -372,10 +369,57 @@ Be efficient and use the fastest method to interact with each element.`;
     try {
       await this.stagehand.act(`Click the ${description}`);
       console.log(`   ✅ Clicked (${Date.now() - stepStart}ms)`);
-      await this.wait(1000);
+      await this.wait(200);
       return true;
     } catch (e) {
       console.log(`   ❌ Click failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Quick click on common CTA buttons - tries direct selectors first for speed
+   */
+  async clickCTA() {
+    console.log(`\n🖱️  Click: Continue/Next button`);
+    const stepStart = Date.now();
+
+    // Try direct selectors first (fastest)
+    const ctaSelectors = [
+      'button:has-text("Continue")',
+      'button:has-text("Next")',
+      'button:has-text("Get started")',
+      'button:has-text("Create account")',
+      'button:has-text("Submit")',
+      '[data-testid*="continue"]',
+      '[data-testid*="submit"]',
+      'button[type="submit"]',
+      '.btn-primary',
+      'button.primary'
+    ];
+
+    for (const selector of ctaSelectors) {
+      try {
+        const btn = await this.page.$(selector);
+        if (btn && await btn.isVisible()) {
+          await btn.click();
+          console.log(`   ✅ Clicked via selector: ${selector} (${Date.now() - stepStart}ms)`);
+          await this.wait(200);
+          return true;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    // Fallback to Stagehand
+    try {
+      await this.stagehand.act('Click the Continue or Next button');
+      console.log(`   ✅ Clicked via Stagehand (${Date.now() - stepStart}ms)`);
+      await this.wait(200);
+      return true;
+    } catch (e) {
+      console.log(`   ❌ CTA click failed: ${e.message}`);
       return false;
     }
   }
@@ -389,7 +433,7 @@ Be efficient and use the fastest method to interact with each element.`;
 
     const response = await this.anthropic.messages.create({
       model: 'claude-3-5-haiku-latest',
-      max_tokens: 512,
+      max_tokens: 256,
       messages: [{
         role: 'user',
         content: [
@@ -399,33 +443,13 @@ Be efficient and use the fastest method to interact with each element.`;
           },
           {
             type: 'text',
-            text: `You are automating a ZenBusiness LLC formation flow.
+            text: `ZenBusiness form automation. DATA: ${this.persona.firstName} ${this.persona.lastName}, ${this.persona.email}, ${this.persona.phone}, ${this.persona.state}, ${this.businessDetails.businessName}
 
-PERSONA DATA (use these EXACT values):
-- Full Name: ${this.persona.fullName}
-- First Name: ${this.persona.firstName}
-- Last Name: ${this.persona.lastName}
-- Email: ${this.persona.email}
-- Phone: ${this.persona.phone}
-- State: ${this.persona.state}
-- Password: ${this.persona.password || 'TestPass123!'}
-- Address: ${this.persona.address?.street || '123 Main Street'}
-- City: ${this.persona.address?.city || 'Las Vegas'}
-- ZIP: ${this.persona.address?.zip || '89101'}
-
-BUSINESS DATA:
-- Business Name: ${this.businessDetails.businessName}
-
-RULES:
-- If there's a form field to fill, use the EXACT value from persona data above
-- If there's a dropdown/select, provide the value to select
-- If there's a continue/next/submit button, click it
-- If on a CAPTCHA page, return action: "wait"
-- If on checkout/payment page, return action: "done"
-- For experience/stage questions, pick first reasonable option
-
-What is the single next action? Respond with JSON only:
-{"action": "click|fill|select|wait|done", "target": "element description", "value": "exact value for fill/select"}`
+Next action? JSON only: {"action":"click|fill|select|wait|done","target":"element","value":"data"}
+- fill: use exact data above
+- click: for Continue/Next/Submit buttons
+- done: if on payment/checkout
+- wait: if CAPTCHA`
           }
         ]
       }]
@@ -480,20 +504,22 @@ What is the single next action? Respond with JSON only:
   async runWithAgentMode() {
     console.log('\n🤖 Running in AGENT MODE (autonomous navigation)\n');
 
-    const instruction = `Complete the ZenBusiness LLC formation flow with these details:
-- Click "Get started" to begin
-- Select state: ${this.persona.state}
-- Enter business name: ${this.businessDetails.businessName}
-- Select "No" if asked about existing business
-- Create account with email: ${this.persona.email}
-- Use password: ${this.persona.password || 'TestPass123!'}
-- Fill contact info: ${this.persona.firstName} ${this.persona.lastName}, phone: ${this.persona.phone}
-- For experience/business stage questions, select first reasonable option
-- Continue through each step until reaching package selection or payment page
-- STOP if you see a CAPTCHA - do not try to solve it
-- STOP before any payment step
+    const instruction = `Complete the ZenBusiness LLC formation flow using this data:
 
-Do NOT submit any real payments.`;
+- State: ${this.persona.state}
+- Business Name: ${this.businessDetails.businessName}
+- First Name: ${this.persona.firstName}
+- Last Name: ${this.persona.lastName}
+- Email: ${this.persona.email}
+- Phone: ${this.persona.phone}
+
+For each page:
+1. Fill any form fields with the data above
+2. Select appropriate options (e.g., "No" for existing business, first option for experience questions)
+3. Click the button to proceed to the next page (Continue, Next, Submit, etc.)
+
+STOP when you reach a package selection, pricing, or payment page.
+STOP if you encounter a CAPTCHA.`;
 
     try {
       const result = await this.agent.execute({
@@ -532,72 +558,177 @@ Do NOT submit any real payments.`;
   }
 
   /**
-   * Fallback: Run using step-by-step commands
+   * Wait for page to change or stabilize
+   */
+  async waitForNavigation(timeout = 3000) {
+    const startUrl = this.page.url();
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await this.wait(300);
+      if (this.page.url() !== startUrl) {
+        console.log(`   📍 Navigated to: ${this.page.url()}`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Run using step-by-step commands - follows known ZenBusiness flow
    */
   async runStepByStep() {
     console.log('\n📋 Running in STEP-BY-STEP MODE\n');
 
-    // Step 2: Start the flow
+    // Step 1: Start the flow
+    console.log('📍 Current URL:', this.page.url());
     await this.act('Click the "Get started" button');
+    await this.waitForNavigation();
     await this.waitForCaptcha();
 
-    // Step 3: Select state
+    // Step 2: Select state
+    console.log('📍 Current URL:', this.page.url());
     await this.select('state', this.persona.state);
-    await this.click('Continue button');
+    await this.clickCTA();
+    await this.waitForNavigation();
     await this.waitForCaptcha();
 
-    // Step 4: Enter business name
-    await this.fill('business name', this.businessDetails.businessName);
-    await this.click('Continue button');
+    // Step 3: Enter business name (retry if needed)
+    console.log('📍 Current URL:', this.page.url());
+    let filled = await this.fill('business name', this.businessDetails.businessName);
+    if (!filled) {
+      // Try alternative selectors
+      await this.act(`Type "${this.businessDetails.businessName}" into the business name input field`);
+    }
+    await this.clickCTA();
+    await this.waitForNavigation();
     await this.waitForCaptcha();
 
-    // Dynamic steps using Haiku for decision making
-    let maxSteps = 30;
+    // Step 4: Check current page and handle accordingly
+    console.log('📍 Current URL:', this.page.url());
+    const url = this.page.url();
+
+    // Handle different page types based on URL
+    if (url.includes('existing-business') || url.includes('designator')) {
+      await this.act('Click "No" or select that this is a new business');
+      await this.clickCTA();
+      await this.waitForNavigation();
+    }
+
+    // Step 5: Account creation (if on sign-up page)
+    console.log('📍 Current URL:', this.page.url());
+    if (this.page.url().includes('sign-up') || this.page.url().includes('account') || this.page.url().includes('register')) {
+      await this.fill('email', this.persona.email);
+      await this.fill('password', this.persona.password);
+      await this.clickCTA();
+      await this.waitForNavigation();
+      await this.waitForCaptcha();
+    }
+
+    // Step 6: Contact info (if on contact page)
+    console.log('📍 Current URL:', this.page.url());
+    if (this.page.url().includes('contact')) {
+      await this.fill('first name', this.persona.firstName);
+      await this.fill('last name', this.persona.lastName);
+      await this.fill('email', this.persona.email);
+      await this.fill('phone', this.persona.phone);
+      await this.clickCTA();
+      await this.waitForNavigation();
+      await this.waitForCaptcha();
+    }
+
+    // Continue with dynamic steps for remaining pages
+    let maxSteps = 10;
     let stepCount = 0;
+    let lastUrl = this.page.url();
 
     while (stepCount < maxSteps) {
       stepCount++;
       await this.waitForCaptcha();
 
-      // Use Haiku to analyze the page and decide next action
-      console.log(`\n🔍 Step ${stepCount}: Analyzing page...`);
+      const currentUrl = this.page.url();
+      console.log(`\n🔍 Step ${stepCount}: URL = ${currentUrl}`);
+
+      // Check if we've reached end states
+      if (currentUrl.includes('checkout') || currentUrl.includes('payment') ||
+          currentUrl.includes('cart') || currentUrl.includes('package') ||
+          currentUrl.includes('pricing')) {
+        console.log('   🛑 Reached checkout/package page - stopping');
+        break;
+      }
+
+      // Handle known page types directly
+      if (currentUrl.includes('business-name')) {
+        console.log('   📝 Business name page - filling...');
+        await this.fill('business name', this.businessDetails.businessName);
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        lastUrl = this.page.url();
+        continue;
+      }
+
+      if (currentUrl.includes('contact-info')) {
+        console.log('   📝 Contact info page - filling...');
+        await this.fill('first name', this.persona.firstName);
+        await this.fill('last name', this.persona.lastName);
+        await this.fill('email', this.persona.email);
+        await this.fill('phone', this.persona.phone);
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        lastUrl = this.page.url();
+        continue;
+      }
+
+      if (currentUrl.includes('existing-business') || currentUrl.includes('designator')) {
+        console.log('   📝 Existing business question - selecting No...');
+        await this.act('Click "No" or the option indicating this is a new business');
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        lastUrl = this.page.url();
+        continue;
+      }
+
+      if (currentUrl.includes('business-experience') || currentUrl.includes('business-stage')) {
+        console.log('   📝 Business experience page - selecting first option...');
+        await this.act('Click the first option or "Just getting started" or similar beginner option');
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        lastUrl = this.page.url();
+        continue;
+      }
+
+      // Unknown page - use AI to analyze
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        console.log('   🆕 Unknown page - analyzing with AI...');
+      } else {
+        console.log('   ⚠️ Stuck on page - analyzing with AI...');
+      }
+
       const decision = await this.decideNextAction();
       console.log(`   Decision: ${JSON.stringify(decision)}`);
 
       if (decision.action === 'done') {
-        console.log('   ✅ Flow appears complete');
         break;
-      }
-
-      if (decision.action === 'fill') {
-        // Auto-detect value from persona if not provided
-        const value = decision.value || this.getPersonaValue(decision.target);
-        if (value) {
-          await this.fill(decision.target, value);
-        }
+      } else if (decision.action === 'fill' && typeof decision.value === 'string') {
+        await this.fill(decision.target, decision.value);
+        await this.clickCTA();
+      } else if (decision.action === 'select' && typeof decision.value === 'string') {
+        await this.select(decision.target, decision.value);
+        await this.clickCTA();
       } else if (decision.action === 'click') {
         await this.click(decision.target);
-      } else if (decision.action === 'select') {
-        const value = decision.value || this.getPersonaValue(decision.target);
-        if (value) {
-          await this.select(decision.target, value);
-        }
-      } else if (decision.action === 'wait') {
-        await this.wait(2000);
+        await this.clickCTA(); // Always click Continue after selecting an option
+      } else {
+        // Default: try to click Continue
+        await this.clickCTA();
       }
-
-      await this.wait(500);
-
-      // Check if we've reached checkout/payment
-      const url = this.page.url();
-      if (url.includes('checkout') || url.includes('payment') || url.includes('cart')) {
-        console.log('   🛑 Reached checkout page - stopping');
-        break;
-      }
+      await this.waitForNavigation(2000);
     }
 
+    const finalUrl = this.page.url();
     console.log('\n✅ Step-by-step flow completed!');
-    return { success: true, steps: this.stepLog.length };
+    console.log(`📍 Final URL: ${finalUrl}`);
+    return { success: true, steps: this.stepLog.length, finalUrl };
   }
 
   /**

@@ -1,7 +1,52 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 /**
  * Persona and Credential Generator
  * Generates realistic test personas with credentials for each test scenario
  */
+
+// Counter file for tracking daily test counts
+const COUNTER_FILE = path.join(__dirname, '..', '.test-counter.json');
+
+/**
+ * Gets today's date in YYYYMMDD format
+ */
+function getTodayDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
+/**
+ * Gets and increments the daily test counter
+ */
+function getTestCount() {
+  const today = getTodayDate();
+  let counterData = { date: today, count: 0 };
+
+  try {
+    if (fs.existsSync(COUNTER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8'));
+      if (data.date === today) {
+        counterData = data;
+      }
+    }
+  } catch (e) {
+    // If file doesn't exist or is corrupted, start fresh
+  }
+
+  counterData.count++;
+  fs.writeFileSync(COUNTER_FILE, JSON.stringify(counterData, null, 2));
+
+  return counterData.count;
+}
 
 const firstNames = [
   'Sarah', 'Michael', 'Jennifer', 'David', 'Jessica', 'James', 'Ashley', 'Robert',
@@ -75,7 +120,10 @@ export function generatePersona(scenarioType) {
   const businessIdeas = businessTypes[scenarioType] || businessTypes.llc;
   const businessIdea = businessIdeas[Math.floor(Math.random() * businessIdeas.length)];
 
-  const email = `test_${scenarioType}_${new Date().toISOString().split('T')[0]}_${uniqueId}@zenbusiness.com`;
+  // Get today's date and test count for email
+  const today = getTodayDate();
+  const testCount = getTestCount();
+  const email = `ryan.willging+zbtest${today}_${testCount}@zenbusiness.com`;
 
   return {
     firstName,
@@ -83,7 +131,7 @@ export function generatePersona(scenarioType) {
     fullName: `${firstName} ${lastName}`,
     email,
     password: 'cakeroofQ1!',
-    phone: `555-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
+    phone: '513-236-3066',
     businessIdea,
     industry,
     state: state.name,

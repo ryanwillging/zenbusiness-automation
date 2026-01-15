@@ -122,7 +122,8 @@ To switch models, edit `fastAgent.js` line ~42 and ~59.
 
 ## Test Credentials
 
-- **Email Format**: `test_[scenario]_[date]_[uniqueID]@zenbusiness.com`
+- **Email Format**: `ryan.willging+zbtest[YYYYMMDD]_[count]@zenbusiness.com`
+- **Phone**: `513-236-3066`
 - **Password**: `cakeroofQ1!`
 - **Test Card**: `4242 4242 4242 4242` (CVV: 123, Expiry: 12/2028)
 
