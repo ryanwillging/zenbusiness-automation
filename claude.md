@@ -9,23 +9,35 @@ A comprehensive, autonomous testing framework for ZenBusiness onboarding flows. 
 - **Node.js**: JavaScript runtime environment (v18+ recommended)
 - **@browserbasehq/stagehand**: AI-powered browser automation framework (primary)
 - **Playwright**: Underlying browser engine
-- **@anthropic-ai/sdk**: Claude API for AI decision-making
-- **Claude Haiku**: Recommended model (faster, higher rate limits)
-- **Claude Sonnet**: Alternative model (more capable, lower rate limits)
+- **OpenAI GPT-4o**: Primary model for Stagehand agent mode (best compatibility)
+- **@anthropic-ai/sdk**: Claude API for fallback AI decision-making
+- **dotenv**: Environment variable management
 - **zod**: Schema validation for extracted data
 
 ## Environment Configuration
 
-### Required API Key
+### Required API Keys
+
+Create a `.env` file in the project root:
 ```bash
-export ANTHROPIC_API_KEY='your-api-key-here'
+OPENAI_API_KEY=sk-proj-your-openai-key-here
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
 ```
-Get your API key from: https://console.anthropic.com/
+
+Or export directly:
+```bash
+export OPENAI_API_KEY='sk-proj-...'
+export ANTHROPIC_API_KEY='sk-ant-...'
+```
+
+**Get your keys from:**
+- OpenAI: https://platform.openai.com/api-keys
+- Anthropic: https://console.anthropic.com/
 
 ## NPM Scripts
 
 ### Test Scenarios
-- `npm run test:turbo` - **Recommended**: Fast AI-powered test using Stagehand + Haiku
+- `npm run test:turbo` - **Recommended**: Fast AI-powered test using Stagehand + GPT-4o
 - `npm test` - Run all ZenBusiness scenarios (legacy)
 - `npm run test:llc` - Run only LLC formation test (legacy)
 - `npm run test:dba` - Run only DBA registration test (legacy)
@@ -48,7 +60,7 @@ zenbusiness-automation/
 ├── cache-manager.js           # Cache management CLI
 ├── learnings.json             # Accumulated learnings from test runs (auto-generated)
 ├── utils/
-│   ├── fastAgent.js           # Stagehand + Haiku agent (primary automation tool)
+│   ├── fastAgent.js           # Stagehand + GPT-4o agent (primary automation tool)
 │   ├── baseScenario.js        # Base class all scenarios extend (legacy)
 │   ├── personaGenerator.js    # Generates realistic test personas
 │   ├── reportGenerator.js     # Creates markdown test reports
@@ -68,15 +80,20 @@ zenbusiness-automation/
 
 ### Key Files
 
-- **fastAgent.js**: The primary automation tool. Uses Stagehand's `agent()` mode for autonomous multi-step navigation with Claude Haiku. Includes:
+- **fastAgent.js**: The primary automation tool. Uses Stagehand's `agent()` mode with GPT-4o for autonomous multi-step navigation. Includes:
+  - URL-based page detection for known ZenBusiness pages
   - Automatic persona data injection into agent instructions
-  - CAPTCHA detection and manual completion waiting
+  - CAPTCHA detection and manual completion waiting (3 min timeout)
   - Fallback to step-by-step mode if agent mode fails
   - Form filling with automatic field detection
 
-- **fastTest.js**: Simple test runner that initializes FastAgent and runs LLC formation flow.
+- **fastTest.js**: Simple test runner that initializes FastAgent and runs LLC formation flow. Loads environment variables via dotenv.
 
-- **personaGenerator.js**: Generates random but realistic test personas with names, emails, addresses, phone numbers, and business details.
+- **personaGenerator.js**: Generates test personas with:
+  - Fixed phone number: `513-236-3066`
+  - Email format: `ryan.willging+zbtest[YYYYMMDD]_[count]@zenbusiness.com`
+  - Daily test counter for unique emails
+  - Random names, states, and business details
 
 ### Documentation
 - `zenbusiness-automation/README.md` - Detailed framework documentation
@@ -86,39 +103,78 @@ zenbusiness-automation/
 ## Architecture
 
 ### Current (Stagehand-based)
-1. `FastAgent` uses Stagehand's `agent()` method for autonomous browser control
-2. Claude Haiku analyzes the page and decides actions autonomously
-3. Persona data is injected into agent instructions for accurate form filling
-4. CAPTCHA pages are detected and wait for manual completion
+
+1. **Agent Mode (Primary)**: Stagehand's `agent()` with GPT-4o handles autonomous navigation
+2. **URL-Based Handlers**: Known pages are detected by URL and handled directly:
+   - `/business-name` → Fill business name field
+   - `/contact-info` → Fill first name, last name, email, phone
+   - `/business-experience` → Select first/beginner option
+   - `/business-stage` → Select first option
+3. **AI Fallback**: Unknown pages analyzed by AI to determine next action
+4. **CAPTCHA Detection**: Pauses for manual completion when detected
+
+### URL-Based Page Detection
+
+The fastAgent uses URL patterns to handle known pages efficiently:
+
+```javascript
+if (currentUrl.includes('business-name')) {
+  // Fill business name directly
+}
+if (currentUrl.includes('contact-info')) {
+  // Fill all contact fields
+}
+if (currentUrl.includes('business-experience')) {
+  // Select first option
+}
+```
+
+This is faster than AI analysis for known page types.
 
 ### Legacy (Playwright-based)
 1. `BaseScenario` provides common functionality (browser setup, navigation, reporting)
 2. Specific scenarios extend `BaseScenario` and implement their flow logic
 3. `VisionAgent` uses screenshot analysis to decide actions
 
+## ZenBusiness LLC Flow
+
+The typical URL progression for LLC formation:
+
+1. `dev.zenbusiness.com/` → Click "Get started"
+2. `/shop/llc/business-state` → Select state
+3. `/shop/llc/business-name` → Enter business name
+4. `/shop/llc/contact-info` → Enter first name, last name, email, phone
+5. `/shop/llc/business-experience` → Select experience level
+6. `/shop/llc/business-stage` → Select business stage
+7. `/shop/llc/industry` → Select industry
+8. `/shop/llc/registered-agent` → Select registered agent option
+9. `/shop/llc/package-selection` → **STOP** (pricing page)
+
 ## Model Selection
 
-### Claude Haiku (Recommended)
-- **Use for**: Regular testing, fast iteration
-- **Pros**: 3-5x faster responses, higher rate limits, lower cost
-- **Cons**: May need more attempts on complex UI elements
-- **Config**: `anthropic/claude-haiku-4-5-20251001`
+### GPT-4o (Primary - Stagehand)
+- **Use for**: Stagehand agent mode, autonomous navigation
+- **Pros**: Best compatibility with Stagehand, reliable CTA detection
+- **Config**: `modelName: 'gpt-4o'` with `OPENAI_API_KEY`
 
-### Claude Sonnet
-- **Use for**: Complex scenarios, debugging, when Haiku struggles
-- **Pros**: More capable reasoning, better at complex decisions
-- **Cons**: Slower, hits rate limits faster (30k tokens/min)
-- **Config**: `anthropic/claude-sonnet-4-5-20250929`
+### Claude Haiku (Fallback - Vision)
+- **Use for**: Screenshot analysis, `decideNextAction()` fallback
+- **Pros**: Fast responses, good for simple decisions
+- **Config**: `claude-3-5-haiku-latest` with `ANTHROPIC_API_KEY`
 
-To switch models, edit `fastAgent.js` line ~42 and ~59.
+### Why GPT-4o over Claude for Stagehand?
+Stagehand's agent mode has better compatibility with OpenAI models. Claude Haiku isn't in Stagehand's supported agent model list. Using GPT-4o for Stagehand and Claude for fallback gives the best of both.
 
 ## Design Decisions
 
-- **Stagehand over raw Playwright**: Stagehand's AI-powered `act()` and `agent()` methods handle dynamic UI better than hardcoded selectors
-- **Haiku over Sonnet**: Haiku's speed and higher rate limits make it better for iterative testing
+- **GPT-4o for Stagehand**: Better agent mode compatibility than Claude models
+- **URL-based page detection**: Faster than AI analysis for known pages
+- **Stagehand over raw Playwright**: AI-powered `act()` and `agent()` methods handle dynamic UI better than hardcoded selectors
+- **dotenv for config**: Keeps API keys out of code and version control
 - **AgentQL removed**: Was incompatible with Stagehand's browser context ("Unsupported event: crash" error)
 - **ES Modules**: Uses modern `import/export` syntax
 - **Dynamic personas**: Generates realistic test data for each run to avoid duplicate account issues
+- **Fixed phone/email**: Uses real formats that pass ZenBusiness validation
 
 ## Test Credentials
 
@@ -131,7 +187,7 @@ To switch models, edit `fastAgent.js` line ~42 and ~59.
 
 ### Running a quick test (recommended)
 ```bash
-export ANTHROPIC_API_KEY='your-key'
+# Ensure .env file has API keys, then:
 npm run test:turbo
 ```
 
@@ -145,43 +201,59 @@ Reports are saved to `zenbusiness-automation/reports/` as markdown files.
 
 ## Troubleshooting
 
-### "Credit balance is too low" error
-Your Anthropic account needs more credits. Add credits at https://console.anthropic.com/
-
-### Rate limit errors (30,000 tokens/min)
-- **Solution 1**: Wait 60 seconds and retry
-- **Solution 2**: Switch to Claude Haiku (higher limits)
-- **Solution 3**: Contact Anthropic for rate limit increase
-
-### "Missing API key" error
-Set the `ANTHROPIC_API_KEY` environment variable:
+### "OpenAI API key is missing" error
+Set the `OPENAI_API_KEY` in your `.env` file or environment:
 ```bash
-export ANTHROPIC_API_KEY='your-key'
+export OPENAI_API_KEY='sk-proj-...'
 ```
 
+### "Anthropic API key is missing" error
+Set the `ANTHROPIC_API_KEY` in your `.env` file or environment:
+```bash
+export ANTHROPIC_API_KEY='sk-ant-...'
+```
+
+### "Credit balance is too low" error
+Your API account needs more credits. Add credits at the provider's console.
+
+### Rate limit errors
+- **Solution 1**: Wait 60 seconds and retry
+- **Solution 2**: Check your API plan limits
+- **Solution 3**: Contact provider for rate limit increase
+
 ### CAPTCHA blocking automation
-The test will automatically detect CAPTCHA and wait. Complete the CAPTCHA manually in the browser window, then the test will continue.
+The test will automatically detect CAPTCHA and wait up to 3 minutes. Complete the CAPTCHA manually in the browser window, then the test will continue.
 
 ### Playwright browsers not installed
 Run `npx playwright install` to install required browsers.
 
 ### Stagehand initialization errors
-Ensure you have the correct model format:
+Ensure you have the correct model format in fastAgent.js:
 ```javascript
-model: {
-  modelName: 'anthropic/claude-haiku-4-5-20251001',
-  apiKey: process.env.ANTHROPIC_API_KEY
-}
+this.stagehand = new Stagehand({
+  env: 'LOCAL',
+  modelName: 'gpt-4o',
+  modelClientOptions: {
+    apiKey: process.env.OPENAI_API_KEY
+  },
+  // ...
+});
 ```
 
 ### Dropdown selection issues
-Haiku sometimes struggles with custom dropdowns. The agent will typically recover by:
-1. Clicking to open dropdown
-2. Typing to filter options
-3. Clicking the filtered result
+GPT-4o typically handles dropdowns well. If issues occur, the agent will:
+1. Click to open dropdown
+2. Type to filter options
+3. Click the filtered result
 
 ### Timeout errors
 Increase timeout values or check network connectivity to dev.zenbusiness.com.
+
+### Test stuck on same page
+If the test keeps clicking Continue without navigating:
+1. Check if a required field is missing (validation error)
+2. Check browser console for JavaScript errors
+3. The URL-based handler may need updating for new page types
 
 ## Learned Patterns
 
@@ -194,8 +266,15 @@ This section is automatically updated based on test run analysis.
 
 ### Contact Info Page
 - Fields: first name, last name, email, phone
-- Haiku can fill all fields in a single action using `fillForm`
+- All fields required before Continue button works
+- Phone must be valid US format (513-236-3066 works)
 
 ### CAPTCHA Detection
 - URL contains `/t/validate`
 - Or page contains `iframe[title*="reCAPTCHA"]`
+- 3 minute timeout for manual completion
+
+### Business Experience/Stage Pages
+- Multiple choice questions
+- First option typically works ("Just getting started", etc.)
+- Agent mode handles these automatically
