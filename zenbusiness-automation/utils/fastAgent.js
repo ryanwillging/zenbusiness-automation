@@ -35,10 +35,10 @@ export class FastAgent {
   async init() {
     console.log('🚀 Initializing FastAgent...');
 
-    // Initialize Stagehand in LOCAL mode with OpenAI GPT-4o (Stagehand works better with OpenAI)
+    // Initialize Stagehand in LOCAL mode with OpenAI GPT-4o-mini (cheaper, still good for browser actions)
     this.stagehand = new Stagehand({
       env: 'LOCAL',
-      modelName: 'gpt-4o',
+      modelName: 'gpt-4o-mini',
       modelClientOptions: {
         apiKey: process.env.OPENAI_API_KEY
       },
@@ -56,12 +56,12 @@ export class FastAgent {
     // Create Stagehand agent for autonomous navigation
     try {
       this.agent = this.stagehand.agent({
-        modelName: 'gpt-4o',
+        modelName: 'gpt-4o-mini',
         modelClientOptions: {
           apiKey: process.env.OPENAI_API_KEY
         }
       });
-      console.log('   ✅ Stagehand agent mode enabled (GPT-4o)');
+      console.log('   ✅ Stagehand agent mode enabled (GPT-4o-mini)');
     } catch (e) {
       this.agent = null;
       console.log(`   ⚠️ Agent mode not available: ${e.message}`);
