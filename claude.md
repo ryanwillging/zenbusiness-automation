@@ -9,7 +9,7 @@ A comprehensive, autonomous testing framework for ZenBusiness onboarding flows. 
 - **Node.js**: JavaScript runtime environment (v18+ recommended)
 - **@browserbasehq/stagehand**: AI-powered browser automation framework (primary)
 - **Playwright**: Underlying browser engine
-- **OpenAI GPT-4o**: Primary model for Stagehand agent mode (best compatibility)
+- **OpenAI GPT-4o-mini**: Primary model for Stagehand agent mode (~15x cheaper than GPT-4o)
 - **@anthropic-ai/sdk**: Claude API for fallback AI decision-making
 - **dotenv**: Environment variable management
 - **zod**: Schema validation for extracted data
@@ -37,7 +37,7 @@ export ANTHROPIC_API_KEY='sk-ant-...'
 ## NPM Scripts
 
 ### Test Scenarios
-- `npm run test:turbo` - **Recommended**: Fast AI-powered test using Stagehand + GPT-4o
+- `npm run test:turbo` - **Recommended**: Fast AI-powered test using Stagehand + GPT-4o-mini
 - `npm test` - Run all ZenBusiness scenarios (legacy)
 - `npm run test:llc` - Run only LLC formation test (legacy)
 - `npm run test:dba` - Run only DBA registration test (legacy)
@@ -60,7 +60,7 @@ zenbusiness-automation/
 ├── cache-manager.js           # Cache management CLI
 ├── learnings.json             # Accumulated learnings from test runs (auto-generated)
 ├── utils/
-│   ├── fastAgent.js           # Stagehand + GPT-4o agent (primary automation tool)
+│   ├── fastAgent.js           # Stagehand + GPT-4o-mini agent (primary automation tool)
 │   ├── baseScenario.js        # Base class all scenarios extend (legacy)
 │   ├── personaGenerator.js    # Generates realistic test personas
 │   ├── reportGenerator.js     # Creates markdown test reports
@@ -80,7 +80,7 @@ zenbusiness-automation/
 
 ### Key Files
 
-- **fastAgent.js**: The primary automation tool. Uses Stagehand's `agent()` mode with GPT-4o for autonomous multi-step navigation. Includes:
+- **fastAgent.js**: The primary automation tool. Uses Stagehand's `agent()` mode with GPT-4o-mini for autonomous multi-step navigation. Includes:
   - URL-based page detection for known ZenBusiness pages
   - Automatic persona data injection into agent instructions
   - CAPTCHA detection and manual completion waiting (3 min timeout)
@@ -104,7 +104,7 @@ zenbusiness-automation/
 
 ### Current (Stagehand-based)
 
-1. **Agent Mode (Primary)**: Stagehand's `agent()` with GPT-4o handles autonomous navigation
+1. **Agent Mode (Primary)**: Stagehand's `agent()` with GPT-4o-mini handles autonomous navigation
 2. **URL-Based Handlers**: Known pages are detected by URL and handled directly:
    - `/business-name` → Fill business name field
    - `/contact-info` → Fill first name, last name, email, phone
@@ -152,22 +152,22 @@ The typical URL progression for LLC formation:
 
 ## Model Selection
 
-### GPT-4o (Primary - Stagehand)
+### GPT-4o-mini (Primary - Stagehand)
 - **Use for**: Stagehand agent mode, autonomous navigation
-- **Pros**: Best compatibility with Stagehand, reliable CTA detection
-- **Config**: `modelName: 'gpt-4o'` with `OPENAI_API_KEY`
+- **Pros**: ~15x cheaper than GPT-4o, good for browser actions
+- **Config**: `modelName: 'gpt-4o-mini'` with `OPENAI_API_KEY`
 
 ### Claude Haiku (Fallback - Vision)
 - **Use for**: Screenshot analysis, `decideNextAction()` fallback
 - **Pros**: Fast responses, good for simple decisions
 - **Config**: `claude-3-5-haiku-latest` with `ANTHROPIC_API_KEY`
 
-### Why GPT-4o over Claude for Stagehand?
-Stagehand's agent mode has better compatibility with OpenAI models. Claude Haiku isn't in Stagehand's supported agent model list. Using GPT-4o for Stagehand and Claude for fallback gives the best of both.
+### Why GPT-4o-mini over Claude for Stagehand?
+Stagehand's agent mode has better compatibility with OpenAI models. Claude Haiku isn't in Stagehand's supported agent model list. GPT-4o-mini is ~15x cheaper than GPT-4o while still handling browser actions well.
 
 ## Design Decisions
 
-- **GPT-4o for Stagehand**: Better agent mode compatibility than Claude models
+- **GPT-4o-mini for Stagehand**: Better agent mode compatibility than Claude models, ~15x cheaper than GPT-4o
 - **URL-based page detection**: Faster than AI analysis for known pages
 - **Stagehand over raw Playwright**: AI-powered `act()` and `agent()` methods handle dynamic UI better than hardcoded selectors
 - **dotenv for config**: Keeps API keys out of code and version control
@@ -232,7 +232,7 @@ Ensure you have the correct model format in fastAgent.js:
 ```javascript
 this.stagehand = new Stagehand({
   env: 'LOCAL',
-  modelName: 'gpt-4o',
+  modelName: 'gpt-4o-mini',
   modelClientOptions: {
     apiKey: process.env.OPENAI_API_KEY
   },
@@ -241,7 +241,7 @@ this.stagehand = new Stagehand({
 ```
 
 ### Dropdown selection issues
-GPT-4o typically handles dropdowns well. If issues occur, the agent will:
+GPT-4o-mini typically handles dropdowns well. If issues occur, the agent will:
 1. Click to open dropdown
 2. Type to filter options
 3. Click the filtered result
