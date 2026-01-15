@@ -472,6 +472,152 @@ RULES:
   }
 
   /**
+   * Try to select county from dropdown (required for some states like NY, TX)
+   */
+  async trySelectCounty() {
+    // Common county dropdown selectors
+    const countyDropdownSelectors = [
+      'select[name*="county"]',
+      'select[id*="county"]',
+      '[data-testid*="county"] select',
+      'select[aria-label*="county" i]',
+      '.county-select select',
+      // Custom dropdown patterns
+      '[class*="county"] [role="combobox"]',
+      '[class*="county"] [role="listbox"]',
+      'button:has-text("Select county")',
+      'button:has-text("Select your county")',
+      '[placeholder*="county" i]'
+    ];
+
+    for (const selector of countyDropdownSelectors) {
+      try {
+        const dropdown = await this.page.$(selector);
+        if (dropdown && await dropdown.isVisible()) {
+          console.log(`   📍 Found county dropdown: ${selector}`);
+
+          // If it's a native select, get options and select first non-empty one
+          const tagName = await dropdown.evaluate(el => el.tagName.toLowerCase());
+          if (tagName === 'select') {
+            const options = await dropdown.$$('option');
+            for (const option of options) {
+              const value = await option.getAttribute('value');
+              const text = await option.textContent();
+              if (value && value !== '' && !text.toLowerCase().includes('select')) {
+                await dropdown.selectOption({ value });
+                console.log(`   ✅ Selected county: ${text}`);
+                return true;
+              }
+            }
+          } else {
+            // Custom dropdown - click to open, then click first option
+            await dropdown.click();
+            await this.wait(500);
+
+            // Try to find and click first option
+            const optionSelectors = [
+              '[role="option"]:not([aria-disabled="true"])',
+              'li:not(.disabled)',
+              '.dropdown-item',
+              '[class*="option"]'
+            ];
+
+            for (const optSel of optionSelectors) {
+              const options = await this.page.$$(optSel);
+              for (const opt of options) {
+                const text = await opt.textContent();
+                if (text && !text.toLowerCase().includes('select') && await opt.isVisible()) {
+                  await opt.click();
+                  console.log(`   ✅ Selected county: ${text}`);
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    // Fallback: Use AI to detect and select county
+    try {
+      console.log('   🤖 Trying AI for county selection...');
+      await this.act('If there is a county dropdown visible, click it and select the first available county option');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Try to select a package option directly (bypassing AI)
+   */
+  async trySelectPackage(packageName) {
+    const pkgLower = packageName.toLowerCase();
+    const pkgUpper = packageName.toUpperCase();
+
+    // Package card/button selectors
+    const packageSelectors = [
+      // Text-based selectors
+      `button:has-text("${pkgUpper}")`,
+      `button:has-text("${pkgLower}")`,
+      `[class*="package"]:has-text("${pkgUpper}") button`,
+      `[class*="plan"]:has-text("${pkgUpper}") button`,
+      `[class*="tier"]:has-text("${pkgUpper}") button`,
+      // Card-based selectors
+      `[data-package="${pkgLower}"]`,
+      `[data-plan="${pkgLower}"]`,
+      `[data-tier="${pkgLower}"]`,
+      // Radio/checkbox selectors
+      `input[value="${pkgLower}"]`,
+      `input[value="${pkgUpper}"]`,
+      `label:has-text("${pkgUpper}") input`,
+      // Generic card click
+      `[class*="${pkgLower}"]`,
+      `.${pkgLower}-package`,
+      `.${pkgLower}-plan`
+    ];
+
+    for (const selector of packageSelectors) {
+      try {
+        const element = await this.page.$(selector);
+        if (element && await element.isVisible()) {
+          await element.click();
+          console.log(`   ✅ Selected package via: ${selector}`);
+          await this.wait(500);
+
+          // After selecting package, try to click Continue/Select button
+          const continueSelectors = [
+            'button:has-text("Continue")',
+            'button:has-text("Select")',
+            'button:has-text("Choose")',
+            'button[type="submit"]'
+          ];
+
+          for (const contSel of continueSelectors) {
+            try {
+              const contBtn = await this.page.$(contSel);
+              if (contBtn && await contBtn.isVisible()) {
+                await contBtn.click();
+                console.log(`   ✅ Clicked continue button: ${contSel}`);
+                return true;
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+          return true; // Package selected even if continue not found
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Use Claude Haiku to decide what to do next
    */
   async decideNextAction() {
@@ -808,22 +954,14 @@ STOP after order confirmation or if you encounter a CAPTCHA.`;
 
       // Handle known page types directly
 
-      // Business state page - may require county for some states (NY, etc.)
+      // Business state page - may require county for some states (NY, TX, etc.)
       if (currentUrl.includes('business-state') && !currentUrl.includes('business-name')) {
         console.log('   🗺️ Business state page - handling...');
 
-        // Check if state is already selected, if not select it
-        try {
-          await this.act(`If state dropdown is empty or shows "Select", click it and select "${this.persona.state}"`);
-        } catch (e) {
-          // State might already be selected
-        }
-
-        // Try to select county if dropdown exists (required for NY, etc.)
-        try {
-          await this.act('If there is a county dropdown visible with "Select your county", click it and select the first county option');
-        } catch (e) {
-          // No county dropdown, that's fine
+        // Strategy 1: Try direct county dropdown selectors
+        const countySelected = await this.trySelectCounty();
+        if (countySelected) {
+          console.log('   ✅ County selected');
         }
 
         // Click Continue
@@ -930,7 +1068,13 @@ STOP after order confirmation or if you encounter a CAPTCHA.`;
         const testGoals = this.persona.testGoals || { packagePreference: 'starter' };
         const pkg = testGoals.packagePreference.toUpperCase();
         console.log(`   💰 Package selection page - selecting ${pkg} package...`);
-        await this.act(`Click on the "${pkg}" package option, then click Continue or Select`);
+
+        // Try direct selectors first
+        const packageSelected = await this.trySelectPackage(pkg);
+        if (!packageSelected) {
+          // Fallback to AI
+          await this.act(`Click on the "${pkg}" package option, then click Continue or Select`);
+        }
         await this.waitForNavigation(3000);
         continue;
       }
