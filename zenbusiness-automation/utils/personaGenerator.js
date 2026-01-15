@@ -106,9 +106,10 @@ const usStates = [
 /**
  * Generates a unique persona for a test scenario
  * @param {string} scenarioType - Type of business scenario (llc, dba, corporation, nonprofit)
+ * @param {string} goalType - Test goal type: 'minimal', 'standard', 'premium', 'rush', or 'random'
  * @returns {Object} Persona object with all necessary details
  */
-export function generatePersona(scenarioType) {
+export function generatePersona(scenarioType, goalType = 'minimal') {
   const timestamp = Date.now();
   const uniqueId = Math.random().toString(36).substring(2, 8);
 
@@ -152,6 +153,7 @@ export function generatePersona(scenarioType) {
     },
     background: generateBackground(scenarioType, businessIdea),
     motivation: generateMotivation(scenarioType),
+    testGoals: generateTestGoals(goalType),
     timestamp: new Date().toISOString(),
     uniqueId
   };
@@ -183,6 +185,169 @@ function generateMotivation(scenarioType) {
   };
 
   return motivations[scenarioType] || 'Build a successful business';
+}
+
+/**
+ * Test goal presets - defines what the test is trying to accomplish
+ */
+const testGoalPresets = {
+  // Minimal path - cheapest option but with registered agent
+  minimal: {
+    name: 'Minimal Purchase',
+    description: 'Test the cheapest path through checkout with registered agent',
+    packagePreference: 'starter',
+    upsellStrategy: 'selective',
+    upsells: {
+      rushFiling: false,
+      registeredAgent: true,       // Essential for compliance
+      operatingAgreement: false,
+      einService: false,
+      businessBanking: false,
+      website: false,
+      businessEmail: false,
+      complianceMonitoring: false,
+      annualReport: false,
+      businessLicenseSearch: false
+    }
+  },
+
+  // Standard path - select reasonable options for a real business
+  standard: {
+    name: 'Standard Business Setup',
+    description: 'Typical customer selecting sensible options',
+    packagePreference: 'pro',
+    upsellStrategy: 'selective',
+    upsells: {
+      rushFiling: false,           // Not urgent
+      registeredAgent: true,       // Important for compliance
+      operatingAgreement: true,    // Recommended for LLCs
+      einService: true,            // Need for banking/taxes
+      businessBanking: false,      // Will do separately
+      website: false,              // Has own solution
+      businessEmail: false,        // Has own solution
+      complianceMonitoring: true,  // Peace of mind
+      annualReport: false,         // Can handle ourselves
+      businessLicenseSearch: false // Will research ourselves
+    }
+  },
+
+  // Premium path - buy everything
+  premium: {
+    name: 'Premium Full Service',
+    description: 'Customer wanting full-service experience',
+    packagePreference: 'premium',
+    upsellStrategy: 'accept_all',
+    upsells: {
+      rushFiling: true,
+      registeredAgent: true,
+      operatingAgreement: true,
+      einService: true,
+      businessBanking: true,
+      website: true,
+      businessEmail: true,
+      complianceMonitoring: true,
+      annualReport: true,
+      businessLicenseSearch: true
+    }
+  },
+
+  // ZenBusiness Banking path - customer wants banking services
+  banking: {
+    name: 'ZenBusiness Banking Customer',
+    description: 'Pro customer who wants ZenBusiness Banking and will apply for an account',
+    packagePreference: 'pro',
+    upsellStrategy: 'selective',
+    primaryGoal: 'banking',
+    upsells: {
+      rushFiling: false,
+      registeredAgent: true,       // Needed for business
+      operatingAgreement: true,    // Needed for banking
+      einService: true,            // Required for banking
+      businessBanking: true,       // PRIMARY GOAL - ZenBusiness Banking
+      website: false,
+      businessEmail: false,
+      complianceMonitoring: false,
+      annualReport: false,
+      businessLicenseSearch: false
+    },
+    postCheckout: {
+      applyForBanking: true,       // After checkout, apply for ZB Banking account
+      completeApplication: true    // Fill out the banking application
+    }
+  }
+};
+
+/**
+ * Generates checkout goals and upsell preferences
+ * @param {string} goalType - 'minimal', 'standard', 'premium', 'rush', or 'random'
+ */
+export function generateTestGoals(goalType = 'random') {
+  if (goalType === 'random') {
+    const types = Object.keys(testGoalPresets);
+    goalType = types[Math.floor(Math.random() * types.length)];
+  }
+
+  const preset = testGoalPresets[goalType] || testGoalPresets.standard;
+
+  return {
+    goalType,
+    ...preset,
+    // Generate human-readable instructions for the AI agent
+    agentInstructions: generateUpsellInstructions(preset)
+  };
+}
+
+/**
+ * Generates instructions for AI agent based on upsell preferences
+ */
+function generateUpsellInstructions(preset) {
+  const instructions = [];
+
+  instructions.push(`Package: Select the "${preset.packagePreference.toUpperCase()}" package/tier.`);
+
+  if (preset.upsellStrategy === 'decline_all') {
+    instructions.push('Upsells: DECLINE all optional add-ons and upsells. Click "No thanks", "Skip", or "Continue without".');
+  } else if (preset.upsellStrategy === 'accept_all') {
+    instructions.push('Upsells: ACCEPT all optional add-ons and upsells. Click "Yes", "Add", or select the upgrade option.');
+  } else {
+    // Selective - list specific decisions
+    const accept = [];
+    const decline = [];
+
+    for (const [upsell, shouldBuy] of Object.entries(preset.upsells)) {
+      const readableName = upsell.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+      if (shouldBuy) {
+        accept.push(readableName);
+      } else {
+        decline.push(readableName);
+      }
+    }
+
+    if (accept.length > 0) {
+      instructions.push(`ACCEPT these upsells: ${accept.join(', ')}`);
+    }
+    if (decline.length > 0) {
+      instructions.push(`DECLINE these upsells: ${decline.join(', ')}`);
+    }
+  }
+
+  // Add primary goal emphasis
+  if (preset.primaryGoal === 'banking') {
+    instructions.push('\nPRIMARY GOAL: ZenBusiness Banking');
+    instructions.push('- When you see ZenBusiness Banking or business banking option, ALWAYS select it');
+    instructions.push('- After checkout, look for option to apply for ZenBusiness Banking account');
+    instructions.push('- Complete the banking application if prompted');
+  }
+
+  // Add post-checkout instructions
+  if (preset.postCheckout?.applyForBanking) {
+    instructions.push('\nPOST-CHECKOUT:');
+    instructions.push('- After order confirmation, look for "Apply for Banking" or "Open Bank Account" option');
+    instructions.push('- Click to start the ZenBusiness Banking application');
+    instructions.push('- Fill out the banking application form with the persona data');
+  }
+
+  return instructions.join('\n');
 }
 
 /**

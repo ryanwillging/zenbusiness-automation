@@ -165,34 +165,47 @@ RULES:
   }
 
   /**
-   * Fast action using Stagehand's act()
+   * Fast action using Stagehand's act() - with retry logic for empty responses
    */
-  async act(instruction) {
+  async act(instruction, maxRetries = 3) {
     const stepStart = Date.now();
     console.log(`\n🎯 Action: ${instruction}`);
 
-    try {
-      // Stagehand act() takes a string directly
-      await this.stagehand.act(instruction);
-      console.log(`   ✅ Done (${Date.now() - stepStart}ms)`);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Stagehand act() takes a string directly
+        await this.stagehand.act(instruction);
+        console.log(`   ✅ Done (${Date.now() - stepStart}ms)`);
 
-      this.stepLog.push({
-        action: instruction,
-        success: true,
-        duration: Date.now() - stepStart
-      });
+        this.stepLog.push({
+          action: instruction,
+          success: true,
+          duration: Date.now() - stepStart
+        });
 
-      return true;
-    } catch (e) {
-      console.log(`   ❌ Failed: ${e.message}`);
-      this.stepLog.push({
-        action: instruction,
-        success: false,
-        error: e.message,
-        duration: Date.now() - stepStart
-      });
-      return false;
+        return true;
+      } catch (e) {
+        const isEmptyResponse = e.message.includes('No object generated') ||
+                               e.message.includes('response did not match schema') ||
+                               e.message.includes('empty');
+
+        if (isEmptyResponse && attempt < maxRetries) {
+          console.log(`   ⚠️ Empty response (attempt ${attempt}/${maxRetries}) - retrying...`);
+          await this.wait(500); // Brief pause before retry
+          continue;
+        }
+
+        console.log(`   ❌ Failed: ${e.message}`);
+        this.stepLog.push({
+          action: instruction,
+          success: false,
+          error: e.message,
+          duration: Date.now() - stepStart
+        });
+        return false;
+      }
     }
+    return false;
   }
 
   /**
@@ -227,7 +240,10 @@ RULES:
     if (d.includes('city')) return this.persona.address?.city || 'Las Vegas';
     if (d.includes('zip') || d.includes('postal')) return this.persona.address?.zip || '89101';
     if (d.includes('state')) return this.persona.state;
-    if (d.includes('password')) return this.persona.password || 'TestPass123!';
+    if (d.includes('password')) return 'cakeroofQ1!';
+    if (d.includes('card') && d.includes('number')) return '4242424242424242';
+    if (d.includes('expir') || d.includes('exp date') || d.includes('mm/yy')) return '12/28';
+    if (d.includes('cvv') || d.includes('cvc') || d.includes('security code')) return '123';
 
     return null;
   }
@@ -425,6 +441,37 @@ RULES:
   }
 
   /**
+   * Try to click checkout-specific buttons directly (bypassing AI)
+   */
+  async tryCheckoutButtons() {
+    const checkoutSelectors = [
+      'button:has-text("Save and continue")',
+      'button:has-text("Place Order")',
+      'button:has-text("Complete Purchase")',
+      'button:has-text("Submit Order")',
+      'button:has-text("Pay Now")',
+      '[data-testid*="checkout"] button[type="submit"]',
+      'form button[type="submit"]',
+      '.checkout button.primary',
+      'button.checkout-btn'
+    ];
+
+    for (const selector of checkoutSelectors) {
+      try {
+        const btn = await this.page.$(selector);
+        if (btn && await btn.isVisible()) {
+          await btn.click();
+          console.log(`   ✅ Clicked checkout button: ${selector}`);
+          return true;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Use Claude Haiku to decide what to do next
    */
   async decideNextAction() {
@@ -443,13 +490,27 @@ RULES:
           },
           {
             type: 'text',
-            text: `ZenBusiness form automation. DATA: ${this.persona.firstName} ${this.persona.lastName}, ${this.persona.email}, ${this.persona.phone}, ${this.persona.state}, ${this.businessDetails.businessName}
+            text: `ZenBusiness form automation. Analyze the page and tell me what action to take.
 
-Next action? JSON only: {"action":"click|fill|select|wait|done","target":"element","value":"data"}
-- fill: use exact data above
-- click: for Continue/Next/Submit buttons
-- done: if on payment/checkout
-- wait: if CAPTCHA`
+DATA TO USE:
+- Name: ${this.persona.firstName} ${this.persona.lastName}
+- Email: ${this.persona.email}
+- Phone: ${this.persona.phone}
+- State: ${this.persona.state}
+- Business: ${this.businessDetails.businessName}
+- Card: 4242424242424242, Exp 12/28, CVV 123
+- Password: cakeroofQ1!
+
+IMPORTANT: Look for error messages or required fields that are empty. If you see a validation error like "County is required" or "Field is required", tell me to fill that specific field.
+
+Return JSON: {"action":"click|fill|select","target":"element description","value":"data to enter"}
+
+Examples:
+- {"action":"select","target":"county dropdown","value":"Albany"}
+- {"action":"fill","target":"business name field","value":"My Business"}
+- {"action":"click","target":"No thanks button","value":null}
+
+Do NOT return {"action":"wait"} - always return a concrete action to take.`
           }
         ]
       }]
@@ -484,12 +545,8 @@ Next action? JSON only: {"action":"click|fill|select|wait|done","target":"elemen
       // Handle CAPTCHA
       await this.waitForCaptcha();
 
-      // Try agent mode first for autonomous navigation
-      if (this.agent) {
-        return await this.runWithAgentMode();
-      }
-
-      // Fallback to step-by-step mode
+      // Run step-by-step mode first (faster, more reliable)
+      // Agent mode is used as fallback for unknown pages
       return await this.runStepByStep();
 
     } catch (error) {
@@ -503,6 +560,9 @@ Next action? JSON only: {"action":"click|fill|select|wait|done","target":"elemen
    */
   async runWithAgentMode() {
     console.log('\n🤖 Running in AGENT MODE (autonomous navigation)\n');
+
+    // Get test goals and upsell instructions
+    const testGoals = this.persona.testGoals || { packagePreference: 'starter', upsellStrategy: 'decline_all', agentInstructions: 'DECLINE all upsells' };
 
     const instruction = `Complete the ZenBusiness LLC formation flow using this data:
 
@@ -518,19 +578,55 @@ For each page:
 2. Select appropriate options (e.g., "No" for existing business, first option for experience questions)
 3. Click the button to proceed to the next page (Continue, Next, Submit, etc.)
 
-STOP when you reach a package selection, pricing, or payment page.
-STOP if you encounter a CAPTCHA.`;
+CHECKOUT INSTRUCTIONS:
+${testGoals.agentInstructions}
+
+Continue through checkout using:
+- Test Card: 4242 4242 4242 4242
+- Expiry: 12/28
+- CVV: 123
+- Password: cakeroofQ1!
+
+STOP after order confirmation or if you encounter a CAPTCHA.`;
+
+    let lastAgentUrl = this.page.url();
+    let agentStepCount = 0;
 
     try {
       const result = await this.agent.execute({
         instruction,
         maxSteps: 50,
         onStep: async (step) => {
-          console.log(`   📍 Step ${step.stepNumber}: ${step.action || step.description || 'executing...'}`);
+          agentStepCount++;
+          const currentUrl = this.page.url();
+          const urlChanged = currentUrl !== lastAgentUrl;
+
+          // Build step description from available properties
+          const stepInfo = step.text || step.action || step.description || step.type || 'executing...';
+
+          // Log step with URL context
+          if (urlChanged) {
+            console.log(`\n   📍 Step ${agentStepCount}: ${stepInfo}`);
+            console.log(`      🔗 URL: ${currentUrl}`);
+            lastAgentUrl = currentUrl;
+          } else {
+            console.log(`   📍 Step ${agentStepCount}: ${stepInfo}`);
+          }
+
+          // Log additional step details if available
+          if (step.element) {
+            console.log(`      🎯 Element: ${step.element}`);
+          }
+          if (step.value) {
+            console.log(`      📝 Value: ${step.value}`);
+          }
+
           this.stepLog.push({
-            action: step.action || step.description,
+            stepNumber: agentStepCount,
+            action: stepInfo,
+            url: currentUrl,
             success: true,
-            stepNumber: step.stepNumber
+            timestamp: Date.now()
           });
 
           // Check for CAPTCHA after each step
@@ -543,10 +639,11 @@ STOP if you encounter a CAPTCHA.`;
 
       console.log('\n✅ Agent mode completed!');
       console.log(`   Final URL: ${this.page.url()}`);
+      console.log(`   Total steps: ${agentStepCount}`);
 
       return {
         success: true,
-        steps: this.stepLog.length,
+        steps: agentStepCount,
         finalUrl: this.page.url(),
         agentResult: result
       };
@@ -636,10 +733,12 @@ STOP if you encounter a CAPTCHA.`;
       await this.waitForCaptcha();
     }
 
-    // Continue with dynamic steps for remaining pages
-    let maxSteps = 10;
+    // Continue with dynamic steps for remaining pages (high limit to reach dashboard)
+    let maxSteps = 50;
     let stepCount = 0;
-    let lastUrl = this.page.url();
+    let stuckCount = 0; // Track how many times we've been stuck on same URL
+    let urlAtStepStart = ''; // Track URL at start of step to detect if we made progress
+    let lastLoggedUrl = ''; // Track last URL for unknown page logging
 
     while (stepCount < maxSteps) {
       stepCount++;
@@ -648,21 +747,96 @@ STOP if you encounter a CAPTCHA.`;
       const currentUrl = this.page.url();
       console.log(`\n🔍 Step ${stepCount}: URL = ${currentUrl}`);
 
-      // Check if we've reached end states
-      if (currentUrl.includes('checkout') || currentUrl.includes('payment') ||
-          currentUrl.includes('cart') || currentUrl.includes('package') ||
-          currentUrl.includes('pricing')) {
-        console.log('   🛑 Reached checkout/package page - stopping');
+      // Stuck detection - fail after X attempts on same URL
+      // Checkout gets more attempts since it has multiple sections at same URL
+      const isCheckout = currentUrl.includes('checkout');
+      const maxStuckAttempts = isCheckout ? 10 : 5;
+
+      if (currentUrl === urlAtStepStart) {
+        stuckCount++;
+        console.log(`   ⚠️ Same URL as last step (attempt ${stuckCount}/${maxStuckAttempts})`);
+        if (stuckCount >= maxStuckAttempts) {
+          console.log(`\n❌ STUCK: Failed same page ${maxStuckAttempts} times. Stopping test.`);
+          console.log(`   URL: ${currentUrl}`);
+          console.log(`   Likely missing a required field or handler for this page.`);
+          break;
+        }
+      } else {
+        stuckCount = 0; // Reset counter when URL changes
+      }
+      urlAtStepStart = currentUrl; // Remember URL at start of this step
+
+      // Check if we've reached end states (order confirmation or dashboard)
+      if (currentUrl.includes('confirmation') || currentUrl.includes('thank-you') ||
+          currentUrl.includes('success') || currentUrl.includes('order-complete') ||
+          currentUrl.includes('dashboard') || currentUrl.includes('my-account')) {
+        const testGoals = this.persona.testGoals || {};
+
+        // If banking goal, look for banking application after confirmation
+        if (testGoals.postCheckout?.applyForBanking) {
+          console.log('   ✅ Order confirmed - looking for banking application...');
+          await this.wait(2000);
+          try {
+            await this.act('Click on "Apply for Banking" or "Open Bank Account" or "Get Started with Banking" button');
+            await this.waitForNavigation(3000);
+            lastLoggedUrl = this.page.url();
+            continue; // Continue to banking application
+          } catch (e) {
+            console.log('   ⚠️ No banking application link found on confirmation page');
+          }
+        }
+
+        console.log('   ✅ Reached order confirmation - flow complete!');
         break;
       }
 
+      // Banking application page (post-checkout)
+      if (currentUrl.includes('banking-application') || currentUrl.includes('bank-account') ||
+          currentUrl.includes('open-account')) {
+        console.log('   🏦 Banking application page - filling application...');
+        // Fill banking application fields
+        await this.fill('business name', this.businessDetails.businessName);
+        await this.fill('email', this.persona.email);
+        await this.fill('phone', this.persona.phone);
+        await this.fill('address', this.persona.address?.street || '123 Main Street');
+        await this.fill('city', this.persona.address?.city || 'Austin');
+        await this.fill('zip', this.persona.address?.zip || '78701');
+        await this.act('Click Submit or Continue to submit the banking application');
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
       // Handle known page types directly
+
+      // Business state page - may require county for some states (NY, etc.)
+      if (currentUrl.includes('business-state') && !currentUrl.includes('business-name')) {
+        console.log('   🗺️ Business state page - handling...');
+
+        // Check if state is already selected, if not select it
+        try {
+          await this.act(`If state dropdown is empty or shows "Select", click it and select "${this.persona.state}"`);
+        } catch (e) {
+          // State might already be selected
+        }
+
+        // Try to select county if dropdown exists (required for NY, etc.)
+        try {
+          await this.act('If there is a county dropdown visible with "Select your county", click it and select the first county option');
+        } catch (e) {
+          // No county dropdown, that's fine
+        }
+
+        // Click Continue
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
       if (currentUrl.includes('business-name')) {
         console.log('   📝 Business name page - filling...');
         await this.fill('business name', this.businessDetails.businessName);
         await this.clickCTA();
         await this.waitForNavigation(3000);
-        lastUrl = this.page.url();
         continue;
       }
 
@@ -674,7 +848,6 @@ STOP if you encounter a CAPTCHA.`;
         await this.fill('phone', this.persona.phone);
         await this.clickCTA();
         await this.waitForNavigation(3000);
-        lastUrl = this.page.url();
         continue;
       }
 
@@ -683,7 +856,6 @@ STOP if you encounter a CAPTCHA.`;
         await this.act('Click "No" or the option indicating this is a new business');
         await this.clickCTA();
         await this.waitForNavigation(3000);
-        lastUrl = this.page.url();
         continue;
       }
 
@@ -692,32 +864,236 @@ STOP if you encounter a CAPTCHA.`;
         await this.act('Click the first option or "Just getting started" or similar beginner option');
         await this.clickCTA();
         await this.waitForNavigation(3000);
-        lastUrl = this.page.url();
         continue;
       }
 
-      // Unknown page - use AI to analyze
-      if (currentUrl !== lastUrl) {
-        lastUrl = currentUrl;
-        console.log('   🆕 Unknown page - analyzing with AI...');
+      // Industry page - skip it
+      if (currentUrl.includes('industry')) {
+        console.log('   🏭 Industry page - skipping...');
+        await this.act('Click "Skip for now" or "Skip" link');
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Worry-free compliance upsell
+      if (currentUrl.includes('worry-free-compliance') || currentUrl.includes('compliance')) {
+        const testGoals = this.persona.testGoals || { upsells: { complianceMonitoring: false } };
+        const shouldBuy = testGoals.upsells?.complianceMonitoring;
+        console.log(`   🛡️ Compliance upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Yes" or "Add Worry-Free Compliance" or select the compliance option');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "Continue without" to decline compliance');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // EIN (Employer Identification Number) upsell
+      if (currentUrl.includes('employer-identification-number') || currentUrl.includes('ein')) {
+        const testGoals = this.persona.testGoals || { upsells: { einService: false } };
+        const shouldBuy = testGoals.upsells?.einService;
+        console.log(`   🔢 EIN upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Yes" or "Add EIN" or "Get my EIN" to accept EIN service');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "I\'ll do it myself" to decline EIN service');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Money Pro / Financial services upsell
+      if (currentUrl.includes('money-pro') || currentUrl.includes('money')) {
+        console.log('   💵 Money Pro upsell - DECLINING...');
+        await this.act('Click "No thanks" or "Skip" or "Continue without" to decline Money Pro');
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Operating Agreement upsell
+      if (currentUrl.includes('operating-agreement')) {
+        const testGoals = this.persona.testGoals || { upsells: { operatingAgreement: false } };
+        const shouldBuy = testGoals.upsells?.operatingAgreement;
+        console.log(`   📄 Operating Agreement upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Yes" or "Add Operating Agreement" or "Include" to accept');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "Continue without" to decline operating agreement');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Package selection page - select based on test goals
+      if (currentUrl.includes('package-selection') || currentUrl.includes('pricing') || currentUrl.includes('packages')) {
+        const testGoals = this.persona.testGoals || { packagePreference: 'starter' };
+        const pkg = testGoals.packagePreference.toUpperCase();
+        console.log(`   💰 Package selection page - selecting ${pkg} package...`);
+        await this.act(`Click on the "${pkg}" package option, then click Continue or Select`);
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Registered agent upsell
+      if (currentUrl.includes('registered-agent')) {
+        const testGoals = this.persona.testGoals || { upsells: { registeredAgent: true } };
+        const shouldBuy = testGoals.upsells?.registeredAgent !== false; // Default to true
+        console.log(`   📋 Registered agent page - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Appoint ZenBusiness" or "Yes" or select ZenBusiness as registered agent');
+        } else {
+          await this.act('Click "I\'ll be my own" or "No thanks" or decline registered agent service');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Upsell pages - handle based on test goals
+      if (currentUrl.includes('rush-filing') || currentUrl.includes('rush')) {
+        const testGoals = this.persona.testGoals || { upsells: { rushFiling: false } };
+        const shouldBuy = testGoals.upsells?.rushFiling;
+        console.log(`   ⚡ Rush filing upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Yes" or "Add rush filing" or select the rush option');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "Continue without rush filing"');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Banking upsell - special handling for ZenBusiness Banking
+      if (currentUrl.includes('banking') || currentUrl.includes('bank')) {
+        const testGoals = this.persona.testGoals || { upsells: { businessBanking: false } };
+        const shouldBuy = testGoals.upsells?.businessBanking || testGoals.primaryGoal === 'banking';
+        console.log(`   🏦 Banking upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldBuy) {
+          await this.act('Click "Yes" or "Add ZenBusiness Banking" or "Get Banking" to accept banking');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "Continue without banking"');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Generic upsell handling
+      if (currentUrl.includes('upsell') || currentUrl.includes('add-on') || currentUrl.includes('upgrade')) {
+        const testGoals = this.persona.testGoals || { upsellStrategy: 'decline_all' };
+        const shouldAccept = testGoals.upsellStrategy === 'accept_all';
+        console.log(`   🛒 Upsell page - ${shouldAccept ? 'ACCEPTING' : 'DECLINING'}...`);
+        if (shouldAccept) {
+          await this.act('Click "Yes" or "Add" to accept this offer');
+        } else {
+          await this.act('Click "No thanks" or "Skip" or "Continue without" to decline this offer');
+        }
+        await this.waitForNavigation(3000);
+        continue;
+      }
+
+      // Account creation page
+      if (currentUrl.includes('sign-up') || currentUrl.includes('create-account') || currentUrl.includes('register')) {
+        console.log('   👤 Account creation page - filling credentials...');
+        await this.fill('email', this.persona.email);
+        await this.fill('password', 'cakeroofQ1!');
+        await this.clickCTA();
+        await this.waitForNavigation(3000);
+        await this.waitForCaptcha();
+        continue;
+      }
+
+      // Checkout page - multi-step: account info, address, then payment
+      if (currentUrl.includes('checkout')) {
+        console.log('   💳 Checkout page - using AI to analyze section...');
+
+        // Use Claude Haiku to figure out what section we're on and what to do
+        const checkoutDecision = await this.decideNextAction();
+        console.log(`   🤖 Checkout AI Decision: ${JSON.stringify(checkoutDecision)}`);
+
+        let didFill = false;
+
+        if (checkoutDecision.action === 'fill' && checkoutDecision.target && checkoutDecision.value) {
+          // AI found a field to fill
+          await this.fill(checkoutDecision.target, checkoutDecision.value);
+          didFill = true;
+        } else if (checkoutDecision.action === 'select' && checkoutDecision.target && checkoutDecision.value) {
+          await this.select(checkoutDecision.target, checkoutDecision.value);
+          didFill = true;
+        } else if (checkoutDecision.action === 'click' && checkoutDecision.target) {
+          // Check if it's a button to proceed
+          const target = checkoutDecision.target.toLowerCase();
+          if (target.includes('save') || target.includes('continue') || target.includes('place order') || target.includes('submit')) {
+            console.log('   🔘 Clicking proceed button...');
+            await this.act(`Click the "${checkoutDecision.target}" button`);
+            await this.wait(3000); // Wait for section transition
+          } else {
+            await this.act(`Click "${checkoutDecision.target}"`);
+          }
+        } else {
+          // AI didn't give useful response - try common checkout buttons directly
+          console.log('   🔘 AI unclear - trying direct button click...');
+          didFill = true; // Force button click attempt
+        }
+
+        // After filling, always try to click the submit button
+        if (didFill) {
+          console.log('   🔘 Trying to submit after fill...');
+          const clicked = await this.tryCheckoutButtons();
+          if (!clicked) {
+            // Try Stagehand as fallback
+            try {
+              await this.act('Click the "Save and continue" or "Submit" button to proceed');
+            } catch (e) {
+              // Button click failed, will retry on next iteration
+            }
+          }
+        }
+        await this.wait(1000);
+        continue;
+      }
+
+      // Unknown page - use AI to analyze and log for future handler creation
+      const urlPath = new URL(currentUrl).pathname;
+      if (currentUrl !== lastLoggedUrl) {
+        lastLoggedUrl = currentUrl;
+        console.log(`   🆕 UNKNOWN PAGE: ${urlPath}`);
+        console.log('      ⚡ Using AI fallback - add handler for faster future runs');
       } else {
-        console.log('   ⚠️ Stuck on page - analyzing with AI...');
+        console.log(`   ⚠️ STUCK on: ${urlPath} - analyzing with AI...`);
       }
 
       const decision = await this.decideNextAction();
-      console.log(`   Decision: ${JSON.stringify(decision)}`);
+      console.log(`   🤖 AI Decision: ${JSON.stringify(decision)}`);
 
+      // Track unknown pages for learning
+      if (!this.unknownPages) this.unknownPages = [];
+      this.unknownPages.push({
+        url: currentUrl,
+        urlPath,
+        decision,
+        timestamp: Date.now()
+      });
+
+      // Handle AI decision
       if (decision.action === 'done') {
         break;
-      } else if (decision.action === 'fill' && typeof decision.value === 'string') {
+      } else if (decision.action === 'fill' && decision.target && decision.value) {
         await this.fill(decision.target, decision.value);
         await this.clickCTA();
-      } else if (decision.action === 'select' && typeof decision.value === 'string') {
+      } else if (decision.action === 'select' && decision.target && decision.value) {
         await this.select(decision.target, decision.value);
         await this.clickCTA();
-      } else if (decision.action === 'click') {
+      } else if (decision.action === 'click' && decision.target) {
         await this.click(decision.target);
-        await this.clickCTA(); // Always click Continue after selecting an option
+      } else if (decision.action === 'wait' || !decision.action) {
+        // AI returned unhelpful response - try to find and fill any visible required field
+        console.log('   ⚠️ AI returned no actionable response - trying to find required fields...');
+        try {
+          await this.act('Look for any field with a validation error or "required" message and fill it with appropriate data');
+        } catch (e) {
+          // If that fails, just try clicking Continue
+          await this.clickCTA();
+        }
       } else {
         // Default: try to click Continue
         await this.clickCTA();
@@ -728,7 +1104,34 @@ STOP if you encounter a CAPTCHA.`;
     const finalUrl = this.page.url();
     console.log('\n✅ Step-by-step flow completed!');
     console.log(`📍 Final URL: ${finalUrl}`);
-    return { success: true, steps: this.stepLog.length, finalUrl };
+
+    // Report unknown pages that need handlers
+    if (this.unknownPages && this.unknownPages.length > 0) {
+      console.log('\n' + '='.repeat(60));
+      console.log('📝 LEARNINGS: Add these handlers for faster future runs');
+      console.log('='.repeat(60));
+      const uniquePages = [...new Map(this.unknownPages.map(p => [p.urlPath, p])).values()];
+      for (const page of uniquePages) {
+        console.log(`\n   URL Pattern: "${page.urlPath.split('/').pop()}"`);
+        console.log(`   AI Action: ${page.decision.action}`);
+        if (page.decision.target) console.log(`   Target: ${page.decision.target}`);
+        if (page.decision.value) console.log(`   Value: ${page.decision.value}`);
+        console.log(`   Suggested handler:`);
+        console.log(`      if (currentUrl.includes('${page.urlPath.split('/').pop()}')) {`);
+        if (page.decision.action === 'click') {
+          console.log(`        await this.act('Click "${page.decision.target}"');`);
+        } else if (page.decision.action === 'fill') {
+          console.log(`        await this.fill('${page.decision.target}', '${page.decision.value}');`);
+        } else if (page.decision.action === 'select') {
+          console.log(`        await this.select('${page.decision.target}', '${page.decision.value}');`);
+        }
+        console.log(`        await this.waitForNavigation(3000);`);
+        console.log(`      }`);
+      }
+      console.log('='.repeat(60));
+    }
+
+    return { success: true, steps: this.stepLog.length, finalUrl, unknownPages: this.unknownPages };
   }
 
   /**
