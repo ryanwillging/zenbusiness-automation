@@ -12,7 +12,6 @@ A comprehensive, autonomous testing framework for ZenBusiness onboarding flows. 
 - **OpenAI GPT-4o-mini**: Primary model for Stagehand agent mode (~15x cheaper than GPT-4o)
 - **@anthropic-ai/sdk**: Claude API for fallback AI decision-making
 - **dotenv**: Environment variable management
-- **zod**: Schema validation for extracted data
 
 ## Environment Configuration
 
@@ -88,7 +87,7 @@ test-runs/
   - Automatic persona data injection into agent instructions
   - Step-by-step mode with URL-based page detection
 
-- **checkoutHandler.js**: Extracted checkout logic (~900 lines). Handles:
+- **checkoutHandler.js**: Extracted checkout logic (~1400 lines). Handles:
   - Section detection (account, summary, payment)
   - Payment field filling with multiple strategies (see Payment Strategy below)
   - Stripe iframe FrameLocator API support
@@ -147,11 +146,6 @@ if (currentUrl.includes('business-experience')) {
 
 This is faster than AI analysis for known page types.
 
-### Legacy (Playwright-based)
-1. `BaseScenario` provides common functionality (browser setup, navigation, reporting)
-2. Specific scenarios extend `BaseScenario` and implement their flow logic
-3. `VisionAgent` uses screenshot analysis to decide actions
-
 ## ZenBusiness LLC Flow
 
 The typical URL progression for LLC formation:
@@ -179,9 +173,10 @@ The typical URL progression for LLC formation:
 The checkout page (`/shop/llc/checkout`) is a multi-step form on a single URL. Sections include:
 
 ### Section 1: Account Creation
-- Email (may be pre-filled from contact-info)
-- Password field → Use `cakeroofQ1!`
+- Email is **pre-filled** from the contact-info page - do NOT re-enter it
+- Password field → Use `cakeroofQ1!` (only field that needs filling)
 - Click "Save and continue"
+- **WARNING**: If you try to fill email, it may go into the password field instead
 
 ### Section 2: Business Info Review
 - Shows cart summary (Your cart ✓)
@@ -190,19 +185,21 @@ The checkout page (`/shop/llc/checkout`) is a multi-step form on a single URL. S
 
 ### Section 3: Payment
 - Payment method selector: Apple Pay, Google Pay, **Credit or debit card**
-- **CRITICAL**: Card/Expiry/CVV are in a **COMBINED INPUT ROW** - use Tab to navigate!
+- **CRITICAL**: Click directly on each field - Tab navigation doesn't work with Stagehand!
 - Card fields (all required):
-  - Card number: `4242424242424242` (16 digits)
-  - Expiration: `1228` (MMYY format, NO slash when typing via Tab)
-  - CVV: `123`
+  - Card number: Click field, type `4242424242424242` (16 digits)
+  - Expiration: Click field, type digits **one at a time** (`1`, `2`, `2`, `8`) with waits between
+  - CVV: Click field, type `123`
   - **Zip code: `78701`** (separate field below card row)
 - Click "Place order" button
+
+**Why digit-by-digit expiration?** The field auto-formats as you type (adds `/` after MM). Typing `1228` all at once doesn't trigger the formatting correctly.
 
 ### Payment Strategy Priority
 
 The checkout handler tries these methods in order:
 
-1. **Stripe FrameLocator API** (Primary - Most Reliable)
+1. **Stripe FrameLocator API** (if iframes detected)
    ```javascript
    const stripeFrame = page.frameLocator('iframe').first();
    await stripeFrame.locator('[placeholder="Card number"]').fill('4242424242424242');
@@ -210,46 +207,48 @@ The checkout handler tries these methods in order:
    await stripeFrame.locator('[placeholder="CVC"]').fill('123');
    ```
 
-2. **Playwright Keyboard** - Tab navigation with `keyboard.type()` and `keyboard.press('Tab')`
+2. **Click-based Stagehand act()** (Primary - Most Reliable for ZenBusiness)
+   ```javascript
+   await act('Click on the card number input field and type 4242424242424242');
+   await act('Click on the expiration date field');
+   await act('Press key 1'); await act('Press key 2'); // MM
+   await act('Press key 2'); await act('Press key 8'); // YY
+   await act('Click on the CVV field and type 123');
+   await act('Click on the Zip code field and type 78701');
+   ```
 
-3. **Stagehand act()** - Fallback using AI to press Tab and type values
+**Important**: Tab navigation (`act('Press Tab key')`) does NOT work reliably with Stagehand. Always click directly on fields.
 
 ### Checkout Gotchas
 - All checkout sections share the same URL - can't detect section by URL
 - Must scroll down to see payment section (not visible at top of page)
-- **COMBINED CARD FIELD**: Card number, expiry, and CVV are in ONE visual row
-  - DO NOT try to click on each field separately - they're segments of one input
-  - Use **Tab key** to move from card → expiry → CVV → zip
-  - Clicking may land on wrong segment and corrupt data
+- **COMBINED CARD FIELD**: Card number, expiry, and CVV appear as ONE visual row
+  - Despite appearance, you CAN click each segment separately
+  - **DO NOT use Tab navigation** - it doesn't work with Stagehand
+  - Click directly on each field, type the value, then click the next field
 - Zip code is a SEPARATE field below the card row
 - "Place order" button stays disabled until all validation passes
+- **Only retry on explicit errors**: Don't re-fill fields unless a validation error message is visible
 
 ### Known Payment Field Issues (CRITICAL)
 
 **Card Number Truncation/Corruption**:
-- Card number frequently shows only 15 digits instead of 16
+- Card number may show only 15 digits instead of 16
 - Example: `4242 4242 4242 424` instead of `4242 4242 4242 4242`
-- Or last digit changes: `4242 4242 4242 4244` (wrong!)
 - **Cause**: Auto-formatting interferes with typing, or field doesn't receive all keystrokes
 - **Detection**: Check for "Invalid card number" error text
-- **Fix**: Select all (Ctrl+A), delete, then retype slowly
+- **Fix**: Click field, select all (Ctrl+A), delete, then retype
 
-**CVV Not Filled**:
-- CVV shows placeholder "CVV" instead of `123`
-- **Cause**: AI clicking on "CVV field" hits card or expiry segment instead
-- **Fix**: Use Tab navigation from expiry field, don't click
+**Expiration Not Formatting**:
+- Expiration shows `28 /` or similar malformed value
+- **Cause**: Typing "1228" all at once doesn't trigger auto-formatting
+- **Fix**: Type each digit separately with waits: `1`, `2`, `2`, `8`
 
-**Expiration Format**:
-- When using Tab navigation, type `1228` (MMYY without slash)
-- The field auto-formats to display as `12/28`
-- If clicking directly on expiry, may need `12/28` with slash
-
-**Tab Navigation Failure (CRITICAL)**:
-- If Tab doesn't move focus, subsequent values concatenate into card field
-- **Corruption pattern**: `4242 4242 4242 4242 12/2812 123` (expiry+CVV in card field)
-- **Detection**: Check if card field contains "12", "/", or length > 25 chars
-- **Recovery**: Clear with Ctrl+A + Backspace, retype card only, then retry Tab sequence
-- **Fallback**: If Tab consistently fails, type `1228` as one value after single Tab (some forms auto-advance MM→YY)
+**Data in Wrong Field**:
+- All payment data ends up in card field: `4242 4242 4242 4242 1228 123`
+- **Cause**: Tab navigation failed, subsequent values typed into same field
+- **Detection**: Card field contains "12", "/", or length > 25 chars
+- **Fix**: Don't use Tab - click directly on each field before typing
 
 ## Model Selection
 
@@ -423,7 +422,9 @@ If the test keeps clicking Continue without navigating:
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
 | "State is required" error | State dropdown didn't persist | Add verification after select() |
-| "Invalid card number" | Fields concatenated | Click to focus each field before typing |
+| "Invalid card number" | Data from other fields leaked in | Click each field directly, don't use Tab |
+| "Invalid expiration date" | Typed "1228" all at once | Type digits one at a time (1, 2, 2, 8) |
+| Email in password field | Tried to fill pre-filled email | Only fill password on account section |
 | "Place order" disabled | Missing zip code | Fill zip code field (78701) |
 | Same URL, no progress | Validation error blocking | Check screenshot for red error text |
 | AI returns "wait" action | Can't determine next step | Page may need scrolling or new handler |
@@ -478,12 +479,14 @@ This section is automatically updated based on test run analysis.
 
 ### Checkout Page
 - Single URL with multiple sections (account, business review, payment)
+- Account section: Email is pre-filled, only enter password
 - Must scroll down to see payment section
 - Payment fields: card number, expiry (MM/YY), CVV, **zip code**
-- Card/expiry/CVV are ONE combined input row - use **Tab** to navigate (don't click each)
+- **Click directly on each field** - Tab navigation doesn't work with Stagehand
+- Type expiration digits one at a time (1, 2, 2, 8) for proper auto-formatting
 - Zip is a separate input field below the card row
 - "Place order" button disabled until all fields valid
-- Verify card field value after each Tab to detect corruption
+- Only retry fields when explicit validation error is shown
 
 ### Upsell Pages
 - 6+ upsell pages between package selection and checkout
