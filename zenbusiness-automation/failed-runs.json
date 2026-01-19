@@ -111,11 +111,40 @@
       "error": "CAPTCHA timeout",
       "steps": 0,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T20:29:21.617Z",
+      "persona": "Ashley Robinson",
+      "state": "Oregon",
+      "business": "Apex Inc.",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T21:04:31.246Z",
+      "persona": "Christopher Ortiz",
+      "state": "Florida",
+      "business": "Landscaping Company",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 59,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T21:13:07.791Z",
+      "persona": "Robert Taylor",
+      "state": "Florida",
+      "business": "Stellar Co.",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc-addons/business-kit",
+      "error": "Did not reach confirmation page",
+      "steps": 37,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 4,
+    "Did not reach confirmation page": 6,
     "-32001 Session with given id not found.": 1,
-    "CAPTCHA timeout": 7
+    "CAPTCHA timeout": 8
   }
 }

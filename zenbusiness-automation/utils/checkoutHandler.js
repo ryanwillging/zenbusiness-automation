@@ -693,16 +693,20 @@ export class CheckoutHandler {
       // Take screenshot before clicking Place Order
       await this.agent.saveScreenshot('before_place_order');
 
-      // STEP 5: Try Place Order
+      // STEP 5: Try Place Order - wait longer for payment processing
       console.log('     5. Click Place Order...');
       const urlBefore = await this.page.url();
       await this.agent.act('Click the "Place order" button');
-      await this.agent.wait(WAIT_TIMES.checkout);
 
-      // Check result
+      // Wait longer for payment processing (3 seconds)
+      await this.agent.wait(3000);
+
+      // Check for success - URL change OR confirmation text on page
       const urlAfter = await this.page.url();
-      if (urlAfter !== urlBefore || urlAfter.includes('confirmation')) {
-        console.log('   SUCCESS: Page changed!');
+      const hasConfirmationText = await this.checkForConfirmation();
+
+      if (urlAfter !== urlBefore || urlAfter.includes('confirmation') || hasConfirmationText) {
+        console.log('   SUCCESS: Order confirmed!');
         return true;
       }
 
@@ -713,24 +717,20 @@ export class CheckoutHandler {
 
       // Only retry if there's an actual validation error message
       if (!error) {
-        console.log('   No validation error - waiting and trying Place Order again...');
-        await this.agent.wait(WAIT_TIMES.long);
-        await this.agent.act('Click the "Place order" button');
-        await this.agent.wait(WAIT_TIMES.checkout);
+        // Wait a bit more and check again (payment might still be processing)
+        console.log('   No error - checking if payment is still processing...');
+        await this.agent.wait(2000);
 
-        // Check if it worked this time
         const urlNow = await this.page.url();
-        if (urlNow !== urlBefore || urlNow.includes('confirmation')) {
-          console.log('   SUCCESS: Page changed on second click!');
+        const hasConfirmNow = await this.checkForConfirmation();
+        if (urlNow !== urlBefore || urlNow.includes('confirmation') || hasConfirmNow) {
+          console.log('   SUCCESS: Order confirmed after waiting!');
           return true;
         }
 
-        // Still no error? Just wait - don't re-fill fields
-        const errorNow = await this.getValidationError();
-        if (!errorNow) {
-          console.log('   Still no error shown - fields may be correct, waiting...');
-          continue;
-        }
+        // Still no change and no error - don't retry, just continue to next attempt
+        console.log('   Still processing or stuck - continuing...');
+        continue;
       }
 
       // Only fix if there's a specific error
@@ -859,6 +859,27 @@ export class CheckoutHandler {
 
       return null;
     }).catch(() => null);
+  }
+
+  /**
+   * Check if the page shows order confirmation content
+   * This catches cases where URL hasn't changed but confirmation is shown
+   */
+  async checkForConfirmation() {
+    return await this.page.evaluate(() => {
+      const text = document.body.innerText.toLowerCase();
+      // Check for confirmation phrases
+      const confirmationPhrases = [
+        'congrats',
+        'congratulations',
+        'order has been placed',
+        'order confirmed',
+        'thank you for your order',
+        'your foundation is set',
+        'welcome to the club'
+      ];
+      return confirmationPhrases.some(phrase => text.includes(phrase));
+    }).catch(() => false);
   }
 
   /**

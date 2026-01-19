@@ -34,6 +34,7 @@ export class FastAgent {
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     this.stepLog = [];
     this.startTime = null;
+    this.captchaTime = 0; // Track time spent waiting for CAPTCHA
     this.testRunDir = null;
     this.testGoals = { ...DEFAULT_TEST_GOALS, ...persona.testGoals };
   }
@@ -248,14 +249,16 @@ export class FastAgent {
     if (!(await this.isOnCaptcha())) return;
 
     console.log('\n CAPTCHA DETECTED - Complete it manually in the browser');
-    const start = Date.now();
-    while (Date.now() - start < maxWait) {
+    const captchaStart = Date.now();
+    while (Date.now() - captchaStart < maxWait) {
       await this.wait(2000);
       if (!(await this.isOnCaptcha())) {
+        const captchaDuration = Date.now() - captchaStart;
+        this.captchaTime += captchaDuration;
         console.log('   CAPTCHA completed!\n');
         return;
       }
-      process.stdout.write(`\r   Waiting... ${Math.round((Date.now() - start) / 1000)}s`);
+      process.stdout.write(`\r   Waiting... ${Math.round((Date.now() - captchaStart) / 1000)}s`);
     }
     throw new Error('CAPTCHA timeout');
   }
@@ -680,7 +683,12 @@ Do NOT return {"action":"wait"}.`
     if (this.stagehand) {
       await this.stagehand.close();
     }
-    console.log(`\nTotal time: ${Math.round((Date.now() - this.startTime) / 1000)}s`);
+    const totalTime = Date.now() - this.startTime;
+    const automationTime = totalTime - this.captchaTime;
+    console.log(`\nTotal time: ${Math.round(totalTime / 1000)}s`);
+    if (this.captchaTime > 0) {
+      console.log(`Automation time (excluding CAPTCHA): ${Math.round(automationTime / 1000)}s`);
+    }
     console.log(`Steps executed: ${this.stepLog.length}`);
   }
 }

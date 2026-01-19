@@ -8,8 +8,17 @@ export const PAGE_HANDLERS = [
   // End states (check first - highest priority)
   {
     name: 'orderConfirmation',
-    urlPatterns: ['confirmation', 'thank-you', 'success', 'order-complete', 'dashboard', 'my-account'],
+    urlPatterns: ['confirmation', 'thank-you', 'success', 'order-complete', 'dashboard', 'my-account', '/f/journey'],
     isEndState: true
+  },
+
+  // Post-checkout upsells (decline these)
+  {
+    name: 'postCheckoutUpsell',
+    urlPatterns: ['llc-addons/business-kit', 'llc-addons/website', 'llc-addons/'],
+    excludePatterns: ['confirmation'],
+    handler: 'handleUpsell',
+    config: { upsellKey: 'postCheckout', defaultAccept: false, label: 'Post-Checkout Upsell' }
   },
 
   // Banking application (post-checkout)
