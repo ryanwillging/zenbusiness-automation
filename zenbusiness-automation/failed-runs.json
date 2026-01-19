@@ -1,0 +1,121 @@
+{
+  "runs": [
+    {
+      "timestamp": "2026-01-19T01:21:08.442Z",
+      "persona": "David Robinson",
+      "state": "Washington",
+      "business": "Pet Grooming Service",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 65,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:38:21.538Z",
+      "persona": "Rachel Harris",
+      "state": "Texas",
+      "business": "Digital Marketing Agency",
+      "error": "-32001 Session with given id not found.",
+      "steps": 132,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:40:25.028Z",
+      "persona": "Sarah Evans",
+      "state": "Oregon",
+      "business": "Coffee Roastery",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:44:19.213Z",
+      "persona": "Daniel Kim",
+      "state": "New York",
+      "business": "Virtual Assistant Service",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 27,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:48:10.824Z",
+      "persona": "Michael Taylor",
+      "state": "Washington",
+      "business": "Mobile App Development",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 27,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:56:20.520Z",
+      "persona": "Sarah Kim",
+      "state": "Nevada",
+      "business": "Artisan Bakery",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T01:58:16.886Z",
+      "persona": "Jennifer Valdez",
+      "state": "Colorado",
+      "business": "Zenith Inc.",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T15:39:52.117Z",
+      "persona": "Anthony Quinn",
+      "state": "Colorado",
+      "business": "Virtual Assistant Service",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T16:27:30.329Z",
+      "persona": "James Evans",
+      "state": "Washington",
+      "business": "Digital Marketing Agency",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 200,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T18:17:06.292Z",
+      "persona": "Matthew Jackson",
+      "state": "New York",
+      "business": "Landscaping Company",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T18:18:13.726Z",
+      "persona": "Brian Lee",
+      "state": "Nevada",
+      "business": "Digital Marketing Agency",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-19T18:19:25.710Z",
+      "persona": "Emily Evans",
+      "state": "Florida",
+      "business": "Pet Grooming Service",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    }
+  ],
+  "summary": {
+    "Did not reach confirmation page": 4,
+    "-32001 Session with given id not found.": 1,
+    "CAPTCHA timeout": 7
+  }
+}

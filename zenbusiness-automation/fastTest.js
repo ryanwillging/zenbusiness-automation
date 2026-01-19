@@ -11,8 +11,13 @@
  */
 
 import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
 import { FastAgent } from './utils/fastAgent.js';
 import { generatePersona, generateBusinessDetails } from './utils/personaGenerator.js';
+
+// Error log file for tracking failed runs
+const ERROR_LOG_PATH = './zenbusiness-automation/failed-runs.json';
 
 // Parse command line args for goal type
 function getGoalType() {
@@ -23,6 +28,87 @@ function getGoalType() {
     }
   }
   return 'minimal'; // Default to cheapest path
+}
+
+/**
+ * Load existing failed runs log
+ */
+function loadFailedRuns() {
+  try {
+    if (fs.existsSync(ERROR_LOG_PATH)) {
+      return JSON.parse(fs.readFileSync(ERROR_LOG_PATH, 'utf8'));
+    }
+  } catch (e) {
+    console.log('   Could not load previous failed runs');
+  }
+  return { runs: [], summary: {} };
+}
+
+/**
+ * Save a failed run to the log
+ */
+function saveFailedRun(runData) {
+  const log = loadFailedRuns();
+
+  // Add this run
+  log.runs.push({
+    timestamp: new Date().toISOString(),
+    ...runData
+  });
+
+  // Keep only last 20 failed runs
+  if (log.runs.length > 20) {
+    log.runs = log.runs.slice(-20);
+  }
+
+  // Update summary of common errors
+  if (runData.error) {
+    const errorKey = runData.error.substring(0, 50);
+    log.summary[errorKey] = (log.summary[errorKey] || 0) + 1;
+  }
+
+  fs.writeFileSync(ERROR_LOG_PATH, JSON.stringify(log, null, 2));
+  console.log(`\n📝 Failed run saved to ${ERROR_LOG_PATH}`);
+}
+
+/**
+ * Review recent failed runs and show patterns
+ */
+function reviewFailedRuns() {
+  const log = loadFailedRuns();
+
+  if (log.runs.length === 0) {
+    console.log('\n✅ No failed runs recorded');
+    return;
+  }
+
+  console.log('\n' + '='.repeat(60));
+  console.log('📋 RECENT FAILED RUNS ANALYSIS');
+  console.log('='.repeat(60));
+
+  // Show last 3 failures
+  console.log('\nLast 3 failures:');
+  const recent = log.runs.slice(-3);
+  for (const run of recent) {
+    console.log(`\n  ${run.timestamp}`);
+    console.log(`    Final URL: ${run.finalUrl || 'unknown'}`);
+    console.log(`    Error: ${run.error || 'unknown'}`);
+    console.log(`    Steps: ${run.steps || 0}`);
+    if (run.screenshotFolder) {
+      console.log(`    Screenshots: ${run.screenshotFolder}`);
+    }
+  }
+
+  // Show error patterns
+  if (Object.keys(log.summary).length > 0) {
+    console.log('\n\nError patterns (most common):');
+    const sorted = Object.entries(log.summary).sort((a, b) => b[1] - a[1]);
+    for (const [error, count] of sorted.slice(0, 5)) {
+      console.log(`    ${count}x: ${error}`);
+    }
+  }
+
+  console.log('\n' + '='.repeat(60));
 }
 
 async function main() {
@@ -63,8 +149,36 @@ async function main() {
     console.log(`Steps: ${result.steps}`);
     if (result.error) console.log(`Error: ${result.error}`);
 
+    // If failed, save to error log and review patterns
+    const isSuccess = result.success && !result.error && result.finalUrl?.includes('confirmation');
+    if (!isSuccess) {
+      saveFailedRun({
+        persona: persona.fullName,
+        state: persona.state,
+        business: businessDetails.businessName,
+        finalUrl: result.finalUrl,
+        error: result.error || 'Did not reach confirmation page',
+        steps: result.steps,
+        screenshotFolder: agent.testRunFolder ? `${agent.testRunFolder}/screenshots` : null
+      });
+
+      // Review past failures to identify patterns
+      reviewFailedRuns();
+    } else {
+      console.log('\n✅ Test completed successfully!');
+    }
+
   } catch (error) {
     console.error('Fatal error:', error);
+
+    // Save fatal errors too
+    saveFailedRun({
+      persona: persona.fullName,
+      state: persona.state,
+      business: businessDetails.businessName,
+      error: `FATAL: ${error.message}`,
+      steps: 0
+    });
   } finally {
     await agent.close();
   }
