@@ -412,6 +412,25 @@ export class CheckoutHandler {
   }
 
   /**
+   * Scroll to the payment section of checkout page
+   */
+  async scrollToPayment() {
+    await this.page.evaluate(() => {
+      // Look for payment section and scroll to it
+      const elements = document.querySelectorAll('h2, h3, h4, [class*="payment"], [data-section="payment"]');
+      for (const el of elements) {
+        const text = el.innerText?.toLowerCase() || '';
+        if (text.includes('payment') || text.includes('card details') || text.includes('add card')) {
+          el.scrollIntoView({ behavior: 'instant', block: 'center' });
+          return;
+        }
+      }
+      // Fallback: scroll down 60% of the page
+      window.scrollTo(0, document.body.scrollHeight * 0.6);
+    });
+  }
+
+  /**
    * Check if Stripe iframes are present
    */
   async checkForStripe() {
@@ -662,6 +681,10 @@ export class CheckoutHandler {
     for (let attempt = 1; attempt <= 3; attempt++) {
       console.log(`   Payment attempt ${attempt}/3`);
 
+      // Scroll to payment section before each attempt
+      await this.scrollToPayment();
+      await this.agent.wait(WAIT_TIMES.medium);
+
       // STEP 1: Click on card number field and type card number (combined action)
       console.log('     1. Click card field and type card number...');
       await this.agent.act('Click on the card number input field and type 4242424242424242');
@@ -742,50 +765,6 @@ export class CheckoutHandler {
 
     console.log('   Failed after 3 attempts');
     return false;
-  }
-
-  /**
-   * Get the current value shown in the card number field area
-   */
-  async getCardFieldValue() {
-    return await this.page.evaluate(() => {
-      // Look for card number in visible text
-      const text = document.body.innerText;
-      // Find text that looks like a card number (contains 4242)
-      const match = text.match(/4242[\s\d\/\-]+/);
-      return match ? match[0].trim() : null;
-    }).catch(() => null);
-  }
-
-  /**
-   * Clear the card row and refill it by clicking specific areas
-   */
-  async clearAndRefillCardRow() {
-    console.log('     Clearing and refilling card row...');
-
-    // Clear the entire card row
-    await this.agent.act('Click on the card number field');
-    await this.agent.wait(WAIT_TIMES.brief);
-    await this.agent.act('Press Ctrl+A to select all');
-    await this.agent.wait(WAIT_TIMES.brief);
-    await this.agent.act('Press Backspace to delete');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Type card number
-    await this.agent.act('Type 4242424242424242');
-    await this.agent.wait(WAIT_TIMES.payment);
-
-    // Tab to expiration and type MMYY as single value
-    await this.agent.act('Press Tab to move to expiration');
-    await this.agent.wait(WAIT_TIMES.medium);
-    await this.agent.act('Type 1228');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Tab to CVV and type
-    await this.agent.act('Press Tab to move to CVV');
-    await this.agent.wait(WAIT_TIMES.medium);
-    await this.agent.act('Type 123');
-    await this.agent.wait(WAIT_TIMES.medium);
   }
 
   /**
@@ -974,408 +953,6 @@ export class CheckoutHandler {
       await keyboard.press('Control+a');
       await keyboard.type(PAYMENT_DATA.zipCode, { delay: 50 });
       await this.agent.wait(WAIT_TIMES.payment);
-    }
-  }
-
-  /**
-   * Verify card number is showing correct value
-   * @returns {object} - { isCorrect: boolean, reason: string, currentValue: string }
-   */
-  async verifyCardNumber() {
-    return await this.page.evaluate(() => {
-      const text = document.body.innerText;
-
-      // Look for the full correct card number
-      const hasCorrectCard = text.includes('4242 4242 4242 4242');
-
-      // Check for error message
-      const hasError = text.toLowerCase().includes('invalid card');
-
-      // Check for truncated card (missing last digit)
-      const hasTruncated = text.includes('4242 4242 4242 424') && !text.includes('4242 4242 4242 4242');
-
-      // Check for corrupted card (extra digits from other fields)
-      // This happens when Tab fails and expiry/cvv data goes into card field
-      const hasCorruption = text.includes('42421228') || text.includes('4242123') ||
-                           text.includes('424278701') || text.includes('4244');
-
-      if (hasCorrectCard && !hasError) {
-        return { isCorrect: true, reason: 'Card number is complete and valid' };
-      }
-
-      if (hasError) {
-        return { isCorrect: false, reason: 'Invalid card number error shown' };
-      }
-
-      if (hasTruncated) {
-        return { isCorrect: false, reason: 'Card number truncated (15 digits instead of 16)' };
-      }
-
-      if (hasCorruption) {
-        return { isCorrect: false, reason: 'Card number corrupted with data from other fields' };
-      }
-
-      return { isCorrect: false, reason: 'Card number not found or incomplete' };
-    }).catch(() => ({ isCorrect: false, reason: 'Failed to verify card number' }));
-  }
-
-  /**
-   * Clear the card field completely and retype the correct number
-   */
-  async clearAndRetypeCard() {
-    console.log('   Clearing and retyping card number...');
-
-    // Click on card field
-    await this.agent.act('Click directly on the card number input field to focus it');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Triple-click to select all in the field
-    await this.agent.act('Triple-click to select all text in the card number field');
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Delete selected text
-    await this.agent.act('Press Delete or Backspace to clear the field');
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Also try Ctrl+A as backup
-    await this.agent.act('Press Ctrl+A to select all remaining text');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Press Delete to clear');
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Type the correct card number slowly
-    await this.agent.act('Type "4242424242424242" slowly into the card number field');
-    await this.agent.wait(WAIT_TIMES.payment);
-  }
-
-  /**
-   * Get current state of payment fields
-   */
-  async getFieldState() {
-    return await this.page.evaluate(() => {
-      const text = document.body.innerText;
-
-      // Check for COMPLETE card number (all 16 digits shown as 4242 4242 4242 4242)
-      // NOT just partial "4242" which could be truncated
-      const hasCompleteCard = text.includes('4242 4242 4242 4242');
-
-      // Check for card number error (means card is incomplete/invalid)
-      const hasCardError = text.toLowerCase().includes('invalid card');
-
-      // Check if CVV is showing placeholder (means not filled)
-      const hasCvvPlaceholder = text.includes('CVV') && !text.includes('•••');
-
-      return {
-        hasCard: hasCompleteCard && !hasCardError,
-        hasExpiry: text.includes('12/28') || text.includes('12 / 28'),
-        hasCvv: !hasCvvPlaceholder,
-        hasZip: text.includes('78701'),
-        hasCardError: hasCardError
-      };
-    }).catch(() => ({ hasCard: false, hasExpiry: false, hasCvv: false, hasZip: false, hasCardError: false }));
-  }
-
-  /**
-   * Check if payment fields already have values
-   */
-  async checkFieldsAlreadyFilled() {
-    return await this.page.evaluate(() => {
-      const text = document.body.innerText;
-      // Check if card number is showing (formatted with spaces)
-      return text.includes('4242 4242 4242 4242') || text.includes('4242424242424242');
-    }).catch(() => false);
-  }
-
-  /**
-   * Check if Place Order button is enabled
-   */
-  async isPlaceOrderEnabled() {
-    return await this.page.evaluate(() => {
-      const buttons = document.querySelectorAll('button');
-      for (const btn of buttons) {
-        if (btn.innerText?.toLowerCase().includes('place order')) {
-          return !btn.disabled && !btn.classList.contains('disabled');
-        }
-      }
-      return false;
-    }).catch(() => false);
-  }
-
-  /**
-   * Get payment error messages from the page
-   */
-  async getPaymentErrors() {
-    return await this.page.evaluate(() => {
-      const errors = [];
-      const errorElements = document.querySelectorAll('[class*="error"], .text-red-500, [style*="color: red"]');
-      for (const el of errorElements) {
-        const text = el.innerText?.toLowerCase() || '';
-        if (text.includes('invalid') || text.includes('required') || text.includes('error')) {
-          errors.push(text);
-        }
-      }
-      return errors;
-    }).catch(() => []);
-  }
-
-  /**
-   * Fix specific payment errors
-   */
-  async fixPaymentErrors(errors) {
-    const errorText = errors.join(' ');
-
-    if (errorText.includes('expir')) {
-      console.log('   Fixing expiration date...');
-      await this.agent.act('Click on the expiration field and clear it');
-      await this.agent.wait(WAIT_TIMES.short);
-      await this.agent.act('Type "12/28" into the expiration field');
-      await this.agent.wait(WAIT_TIMES.medium);
-    }
-
-    if (errorText.includes('card')) {
-      console.log('   Fixing card number...');
-      await this.agent.act('Click on the card number field and clear it');
-      await this.agent.wait(WAIT_TIMES.short);
-      await this.agent.act('Type "4242424242424242" into the card field');
-      await this.agent.wait(WAIT_TIMES.medium);
-    }
-
-    if (errorText.includes('zip') || errorText.includes('postal')) {
-      console.log('   Fixing zip code...');
-      await this.agent.act('Click on the zip code field and clear it');
-      await this.agent.wait(WAIT_TIMES.short);
-      await this.agent.act('Type "78701" into the zip field');
-      await this.agent.wait(WAIT_TIMES.medium);
-    }
-  }
-
-  /**
-   * Validate payment fields are filled correctly
-   */
-  async validatePaymentFields() {
-    return await this.page.evaluate(() => {
-      const text = document.body.innerText;
-      return {
-        hasFullCard: text.includes('4242 4242 4242 4242'),
-        hasExpiry: text.includes('12/28') || text.includes('12 / 28'),
-        hasCvv: true, // CVV is masked, can't easily validate
-        hasZip: text.includes('78701'),
-      };
-    }).catch(() => ({ hasFullCard: false, hasExpiry: false, hasCvv: false, hasZip: false }));
-  }
-
-  /**
-   * Variation 1: Playwright keyboard with slow typing (100ms delay)
-   * Uses MM Tab YY format for expiration as the form expects
-   */
-  async fillPaymentVariation1() {
-    const keyboard = await this.getKeyboard();
-    if (!keyboard) throw new Error('Keyboard not available');
-
-    // Card number
-    await this.agent.act('Click on the card number field');
-    await this.agent.wait(WAIT_TIMES.medium);
-    await keyboard.press('Control+a');
-    await keyboard.type(PAYMENT_DATA.cardNumber, { delay: 100 });
-    await this.agent.wait(WAIT_TIMES.long);
-
-    // Expiry - type MM, Tab to year, type YY
-    await this.agent.act('Click on the MM / YY expiration field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type('12', { delay: 100 });
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.brief);
-    await keyboard.type('28', { delay: 100 });
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // CVV
-    await this.agent.act('Click on the CVV field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.cvv, { delay: 100 });
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Zip
-    await this.agent.act('Click on the Zip code field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.zipCode, { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.medium);
-  }
-
-  /**
-   * Variation 2: Pure Stagehand visual interaction
-   * Uses "12/28" format for expiration
-   */
-  async fillPaymentVariation2() {
-    // Card number - click and type separately
-    await this.agent.act('Click on the card number input field to focus it');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act(`Type "4242424242424242" into the focused card number field`);
-    await this.agent.wait(WAIT_TIMES.long);
-
-    // Expiry - type with slash format
-    await this.agent.act('Click on the expiration date field showing MM / YY');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "12/28" into the expiration field');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // CVV
-    await this.agent.act('Click on the CVV or security code field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "123" into the CVV field');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Zip
-    await this.agent.act('Click on the Zip code field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "78701" into the Zip code field');
-    await this.agent.wait(WAIT_TIMES.medium);
-  }
-
-  /**
-   * Variation 3: Playwright keyboard with faster typing (50ms delay)
-   * Uses MM Tab YY format for expiration
-   */
-  async fillPaymentVariation3() {
-    const keyboard = await this.getKeyboard();
-    if (!keyboard) throw new Error('Keyboard not available');
-
-    // Card number
-    await this.agent.act('Click on the card number field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.press('Control+a');
-    await keyboard.type(PAYMENT_DATA.cardNumber, { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Expiry - MM Tab YY
-    await this.agent.act('Click on the expiration date field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type('12', { delay: 50 });
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.brief);
-    await keyboard.type('28', { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // CVV
-    await this.agent.act('Click on the CVV field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.cvv, { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Zip
-    await this.agent.act('Click on the Zip code field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.zipCode, { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.short);
-  }
-
-  /**
-   * Variation 4: Hybrid - Stagehand click, keyboard fill, with Tab navigation
-   * Uses MM Tab YY format for expiration
-   */
-  async fillPaymentVariation4() {
-    const keyboard = await this.getKeyboard();
-    if (!keyboard) throw new Error('Keyboard not available');
-
-    // Focus card field via Stagehand
-    await this.agent.act('Click directly in the middle of the card number input');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Clear and type card using keyboard
-    await keyboard.press('Control+a');
-    await this.agent.wait(WAIT_TIMES.brief);
-
-    // Type card number
-    await keyboard.type(PAYMENT_DATA.cardNumber, { delay: 80 });
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Tab to expiry, then MM Tab YY
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type('12', { delay: 80 });
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.brief);
-    await keyboard.type('28', { delay: 80 });
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Tab to CVV
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.cvv, { delay: 80 });
-    await this.agent.wait(WAIT_TIMES.short);
-
-    // Tab to Zip
-    await keyboard.press('Tab');
-    await this.agent.wait(WAIT_TIMES.short);
-    await keyboard.type(PAYMENT_DATA.zipCode, { delay: 50 });
-    await this.agent.wait(WAIT_TIMES.short);
-  }
-
-  /**
-   * Variation 5: Error-aware - reads errors and adjusts
-   * Checks for validation errors after each field
-   */
-  async fillPaymentVariation5() {
-    // Get current error messages
-    const getErrors = async () => {
-      return await this.page.evaluate(() => {
-        const errors = document.querySelectorAll('[class*="error"], .text-red-500, [style*="color: red"], [style*="color:red"]');
-        return Array.from(errors).map(e => e.textContent?.toLowerCase() || '');
-      }).catch(() => []);
-    };
-
-    // Card number
-    await this.agent.act('Click on the card number input field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Clear the field and type "4242424242424242"');
-    await this.agent.wait(WAIT_TIMES.long);
-
-    let errors = await getErrors();
-    if (errors.some(e => e.includes('card') && e.includes('invalid'))) {
-      console.log('   Card error detected, retrying...');
-      await this.agent.act('Select all text in the card field and type "4242424242424242"');
-      await this.agent.wait(WAIT_TIMES.medium);
-    }
-
-    // Expiry - try with slash first
-    await this.agent.act('Click on the expiration date field (MM / YY)');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "12/28" into the expiration field');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    errors = await getErrors();
-    if (errors.some(e => e.includes('expir') && e.includes('invalid'))) {
-      console.log('   Expiry error detected with "12/28", trying "12" Tab "28"...');
-      await this.agent.act('Click on the expiration month field');
-      await this.agent.wait(WAIT_TIMES.short);
-      await this.agent.act('Clear the field and type "12"');
-      await this.agent.wait(WAIT_TIMES.brief);
-      const keyboard = await this.getKeyboard();
-      if (keyboard) {
-        await keyboard.press('Tab');
-        await this.agent.wait(WAIT_TIMES.brief);
-        await keyboard.type('28', { delay: 80 });
-      } else {
-        await this.agent.act('Press Tab key and type "28" for the year');
-      }
-      await this.agent.wait(WAIT_TIMES.medium);
-    }
-
-    // CVV
-    await this.agent.act('Click on the CVV or CVC field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "123" into the CVV field');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Zip
-    await this.agent.act('Click on the Zip code field');
-    await this.agent.wait(WAIT_TIMES.short);
-    await this.agent.act('Type "78701" into the Zip code field');
-    await this.agent.wait(WAIT_TIMES.medium);
-
-    // Final error check
-    errors = await getErrors();
-    if (errors.length > 0) {
-      console.log(`   Remaining errors: ${errors.slice(0, 3).join(', ')}`);
     }
   }
 

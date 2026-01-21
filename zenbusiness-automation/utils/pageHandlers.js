@@ -5,18 +5,48 @@
 
 // Page handler definitions
 export const PAGE_HANDLERS = [
-  // End states (check first - highest priority)
+  // End state - Velo dashboard (final destination)
+  {
+    name: 'veloDashboard',
+    urlPatterns: ['velo', '/app/', '/dashboard'],
+    excludePatterns: ['checkout'],
+    isEndState: true
+  },
+
+  // Post-checkout confirmation - continue through (NOT an end state anymore)
   {
     name: 'orderConfirmation',
-    urlPatterns: ['confirmation', 'thank-you', 'success', 'order-complete', 'dashboard', 'my-account', '/f/journey'],
-    isEndState: true
+    urlPatterns: ['llc-addons/confirmation', 'confirmation', 'thank-you'],
+    excludePatterns: ['velo'],
+    handler: 'handlePostCheckoutConfirmation'
+  },
+
+  // Post-checkout journey/onboarding flow
+  {
+    name: 'postCheckoutJourney',
+    urlPatterns: ['/f/journey', '/f/'],
+    handler: 'handlePostCheckoutJourney'
+  },
+
+  // Post-checkout checkout pages (product purchase pages)
+  {
+    name: 'postCheckoutCheckout',
+    urlPatterns: ['llc-addons/checkout'],
+    handler: 'handlePostCheckoutCheckout'
+  },
+
+  // Post-checkout conclusion page (summary before journey)
+  {
+    name: 'postCheckoutConclusion',
+    urlPatterns: ['llc-addons/conclusion'],
+    handler: 'handlePostCheckoutConclusion'
   },
 
   // Post-checkout upsells (decline these)
   {
     name: 'postCheckoutUpsell',
     urlPatterns: ['llc-addons/business-kit', 'llc-addons/website', 'llc-addons/'],
-    excludePatterns: ['confirmation'],
+    excludePatterns: ['confirmation', 'checkout', 'conclusion'],
     handler: 'handleUpsell',
     config: { upsellKey: 'postCheckout', defaultAccept: false, label: 'Post-Checkout Upsell' }
   },
@@ -123,7 +153,7 @@ export const PAGE_HANDLERS = [
   {
     name: 'genericUpsell',
     urlPatterns: ['upsell', 'add-on', 'upgrade'],
-    handler: 'handleGenericUpsell'
+    handler: 'handleUpsell'
   },
 
   // Checkout (lowest priority for URL matching)

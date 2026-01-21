@@ -47,7 +47,7 @@ zenbusiness-automation/
 ├── fastTest.js                # Test runner with error logging
 ├── failed-runs.json           # Failed run tracking (auto-generated)
 ├── utils/
-│   ├── fastAgent.js           # Stagehand + GPT-4o-mini agent (~680 lines)
+│   ├── fastAgent.js           # Stagehand + GPT-4o-mini agent (~830 lines)
 │   ├── config.js              # Centralized constants (payment data, wait times, selectors)
 │   ├── pageHandlers.js        # Data-driven page handler registry
 │   ├── checkoutHandler.js     # Checkout/payment logic extraction
@@ -81,13 +81,13 @@ test-runs/
 
 ### Key Files
 
-- **fastAgent.js**: The primary automation tool (~680 lines). Uses Stagehand's `agent()` mode with GPT-4o-mini for autonomous multi-step navigation. Includes:
+- **fastAgent.js**: The primary automation tool (~830 lines). Uses Stagehand's `agent()` mode with GPT-4o-mini for autonomous multi-step navigation. Includes:
   - Data-driven page handler routing via `pageHandlers.js`
   - CAPTCHA detection and manual completion waiting (1 min timeout)
   - Automatic persona data injection into agent instructions
   - Step-by-step mode with URL-based page detection
 
-- **checkoutHandler.js**: Extracted checkout logic (~1400 lines). Handles:
+- **checkoutHandler.js**: Extracted checkout logic (~1000 lines). Handles:
   - Section detection (account, summary, payment)
   - Payment field filling with multiple strategies (see Payment Strategy below)
   - Stripe iframe FrameLocator API support
@@ -166,7 +166,13 @@ The typical URL progression for LLC formation:
 14. `/shop/llc/operating-agreement` → Decline operating agreement upsell
 15. `/shop/llc/rush-filing` → Decline rush filing upsell
 16. `/shop/llc/checkout` → Multi-step checkout (see Checkout Flow below)
-17. `/confirmation` or `/thank-you` → Order complete
+17. `/shop/llc-addons/confirmation` → Order placed (NOT end state - continues to onboarding)
+18. `/shop/llc-addons/business-license-report` → Post-checkout upsell (decline or buy based on goals)
+19. `/shop/llc-addons/checkout` → Post-checkout product checkout (if user clicked "Add" on upsell)
+20. `/shop/llc-addons/business-kit` → Post-checkout upsell (decline)
+21. `/shop/llc-addons/conclusion` → Post-checkout summary - click Continue/Get Started
+22. `/f/journey` → Post-checkout onboarding flow (see Journey Flow below)
+23. `/app/` or `velo` or `dashboard` → **END STATE**: Velo dashboard
 
 ## Checkout Flow
 
@@ -222,6 +228,7 @@ The checkout handler tries these methods in order:
 ### Checkout Gotchas
 - All checkout sections share the same URL - can't detect section by URL
 - Must scroll down to see payment section (not visible at top of page)
+- **CRITICAL**: Scroll to payment section BEFORE EACH payment attempt (page may scroll back up)
 - **COMBINED CARD FIELD**: Card number, expiry, and CVV appear as ONE visual row
   - Despite appearance, you CAN click each segment separately
   - **DO NOT use Tab navigation** - it doesn't work with Stagehand
@@ -249,6 +256,59 @@ The checkout handler tries these methods in order:
 - **Cause**: Tab navigation failed, subsequent values typed into same field
 - **Detection**: Card field contains "12", "/", or length > 25 chars
 - **Fix**: Don't use Tab - click directly on each field before typing
+
+## Post-Checkout Journey Flow
+
+After checkout, users go through an onboarding flow at `/f/journey`. This is a **single-page application** where the URL stays the same but content changes.
+
+### Journey Page Characteristics
+- URL is always `/f/journey` regardless of which question is displayed
+- Pages have THREE different input types:
+  1. **Card-style multiple choice** - White rectangular cards with radio circles
+  2. **List/menu selection** - Text items (NAICS codes, industries)
+  3. **Text input fields** - DBA name, business details, etc.
+- The "Next" button is **disabled** until input is provided
+- Must fill/select FIRST, then click Next
+
+### Common Journey Questions
+- "What company indicator do you want to use?" (LLC, L.L.C., Limited Liability Company) - **Card selection**
+- "What is your business industry?" (Agriculture, Mining, etc.) - **List selection**
+- "What would you like your DBA name to be?" - **Text input**
+- "How much revenue do you expect to make in your first year?" ($0, <$25k, etc.) - **Card selection**
+- "Do you plan to have employees in the future?" (Yes/No options) - **Card selection**
+
+### Journey Handler Strategy
+```javascript
+// First, check for text input fields
+const hasTextInput = await page.evaluate(() => {
+  const inputs = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
+  for (const input of inputs) {
+    if (input.offsetParent !== null && !input.value && !input.disabled) return true;
+  }
+  return false;
+});
+
+if (hasTextInput) {
+  // Fill text input with business name
+  await act(`Type "${businessName}" into the text input field`);
+} else {
+  // Try selection strategies: list items, card options, radio buttons
+  await act('Click the first list item option or white card containing the first answer');
+}
+
+await wait(300);
+await act('Click the "Next" button');
+```
+
+### Stuck Detection for Journey
+- Normal pages: 5 attempts on same URL before marking as stuck
+- Journey pages: **15 attempts** (URL stays same, content changes)
+- Checkout pages: 10 attempts
+
+### Journey End State
+The journey ends when reaching Velo dashboard:
+- URL contains `velo`, `/app/`, or `dashboard`
+- This is the final destination for the test
 
 ## Model Selection
 
@@ -379,6 +439,13 @@ Your API account needs more credits. Add credits at the provider's console.
 ### CAPTCHA blocking automation
 The test will automatically detect CAPTCHA and wait up to 1 minute. Complete the CAPTCHA manually in the browser window, then the test will continue.
 
+### Time Tracking
+The test output shows two time metrics:
+- **Total time**: Wall-clock time from start to finish
+- **Automation time (excluding CAPTCHA)**: Actual automation time without CAPTCHA wait
+
+This allows comparing test performance across runs with different CAPTCHA wait times.
+
 ### Playwright browsers not installed
 Run `npx playwright install` to install required browsers.
 
@@ -423,11 +490,18 @@ If the test keeps clicking Continue without navigating:
 |---------|--------------|-----|
 | "State is required" error | State dropdown didn't persist | Add verification after select() |
 | "Invalid card number" | Data from other fields leaked in | Click each field directly, don't use Tab |
+| "Invalid card number" after retry | Page scrolled away from payment | Scroll to payment before each attempt |
 | "Invalid expiration date" | Typed "1228" all at once | Type digits one at a time (1, 2, 2, 8) |
 | Email in password field | Tried to fill pre-filled email | Only fill password on account section |
 | "Place order" disabled | Missing zip code | Fill zip code field (78701) |
 | Same URL, no progress | Validation error blocking | Check screenshot for red error text |
 | AI returns "wait" action | Can't determine next step | Page may need scrolling or new handler |
+| Journey stuck on `/f/journey` | Option not selected, Next disabled | Click option card first, then Next |
+| Journey stuck after 5 attempts | SPA URL doesn't change | Increase stuck limit to 15 for journey |
+| Journey stuck with text input | Page has input field, not cards | Detect input fields, fill with business name |
+| Journey stuck with list selection | NAICS/industry list, not cards | Click first list item option |
+| Stuck at `llc-addons/conclusion` | Need to click Continue | Add handler to click Continue/Get Started |
+| Stuck at `llc-addons/checkout` | Post-checkout product checkout | Decline via "No thanks" or "Skip" link |
 
 ### Screenshot Analysis
 When debugging, always:
@@ -493,3 +567,32 @@ This section is automatically updated based on test run analysis.
 - All have "No thanks" or "Skip" links
 - URLs: worry-free-compliance, employer-identification-number, bank-of-america, money-pro, operating-agreement, rush-filing
 - Can be declined with simple click actions
+
+### Post-Checkout Upsells
+- Appear after order confirmation at `/llc-addons/*`
+- Pages: `business-license-report`, `business-kit`
+- Decline these to continue to journey flow
+- Uses button-style matching: primary black button = accept, secondary white/outline = decline
+
+### Post-Checkout Checkout (`llc-addons/checkout`)
+- Full checkout page for post-checkout product purchases (e.g., Business License Report $149)
+- Appears if user clicks "Add" on a post-checkout upsell
+- Handler decides to complete purchase or decline based on `testGoals.upsells.postCheckoutProducts`
+- Decline strategies: "No thanks", "Skip", "Maybe later" links
+
+### Post-Checkout Conclusion (`llc-addons/conclusion`)
+- Summary page after all post-checkout upsells
+- Must click "Continue", "Get Started", or "Next" to proceed to journey
+- Not an end state - continues to `/f/journey`
+
+### Post-Checkout Journey (`/f/journey`)
+- Single-page app - URL stays the same for all questions
+- **Three input types**:
+  1. Card-style multiple choice (white cards with radio circles)
+  2. List/menu selection (NAICS codes, industries - text items in a list)
+  3. Text input fields (DBA name, business details)
+- **Must fill/select** before Next button becomes enabled
+- Detection priority: Check for empty text inputs first, then try selection strategies
+- Questions: company indicator, DBA name, industry (NAICS), revenue expectations, employee plans
+- Allow 15 attempts on same URL (vs 5 for normal pages)
+- Ends at Velo dashboard (`/app/`, `velo`, or `dashboard` in URL)

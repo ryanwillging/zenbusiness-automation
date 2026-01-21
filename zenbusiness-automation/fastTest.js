@@ -150,7 +150,9 @@ async function main() {
     if (result.error) console.log(`Error: ${result.error}`);
 
     // If failed, save to error log and review patterns
-    const isSuccess = result.success && !result.error && result.finalUrl?.includes('confirmation');
+    // Success = reached Velo dashboard (or confirmation if Velo not reached)
+    const isSuccess = result.success && !result.error &&
+      (result.finalUrl?.includes('velo') || result.finalUrl?.includes('/app/') || result.finalUrl?.includes('dashboard'));
     if (!isSuccess) {
       saveFailedRun({
         persona: persona.fullName,

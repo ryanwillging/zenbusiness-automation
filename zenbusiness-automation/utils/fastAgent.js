@@ -419,26 +419,18 @@ Do NOT return {"action":"wait"}.`
     await this.waitForNavigation();
   }
 
-  async handleUpsell(config) {
-    const shouldBuy = this.testGoals.upsells?.[config.upsellKey] ?? config.defaultAccept;
-    console.log(`   ${config.label} upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
+  async handleUpsell(config = {}) {
+    // Support both configured upsells and generic upsells
+    const shouldBuy = config.upsellKey
+      ? (this.testGoals.upsells?.[config.upsellKey] ?? config.defaultAccept)
+      : (this.testGoals.upsellStrategy === 'accept_all');
+    const label = config.label || 'Generic';
+    console.log(`   ${label} upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
 
     if (shouldBuy) {
-      await this.act('Click "Yes" or "Add" or select the option to accept');
+      await this.act('Click the primary black button to accept (may say "Yes", "Add", "Appoint", "Keep me covered")');
     } else {
-      await this.act('Click "No thanks" or "Skip" or "Continue without" to decline');
-    }
-    await this.waitForNavigation();
-  }
-
-  async handleGenericUpsell() {
-    const shouldAccept = this.testGoals.upsellStrategy === 'accept_all';
-    console.log(`   Generic upsell - ${shouldAccept ? 'ACCEPTING' : 'DECLINING'}...`);
-
-    if (shouldAccept) {
-      await this.act('Click "Yes" or "Add" to accept this offer');
-    } else {
-      await this.act('Click "No thanks" or "Skip" to decline this offer');
+      await this.act('Click the secondary white/outline button to decline (may say "No", "Skip", "figure it out myself", "appoint someone else")');
     }
     await this.waitForNavigation();
   }
@@ -461,6 +453,153 @@ Do NOT return {"action":"wait"}.`
     await this.fill('zip', this.persona.address?.zip || '78701');
     await this.act('Click Submit or Continue');
     await this.waitForNavigation();
+  }
+
+  // ==================== Post-Checkout Handlers ====================
+
+  async handlePostCheckoutConfirmation() {
+    console.log('   Order confirmation page - continuing to onboarding...');
+    // Click Next or Continue to proceed through post-checkout flow
+    await this.act('Click "Next" or "Continue" or "Get Started" button');
+    await this.waitForNavigation();
+  }
+
+  async handlePostCheckoutJourney() {
+    console.log('   Post-checkout journey page - analyzing page type...');
+
+    // Journey pages can have different input styles:
+    // 1. Text input fields (DBA name, business details, etc.)
+    // 2. Card-style multiple choice (white cards with radio circles)
+    // 3. List/menu selection (text items in a dropdown-like list)
+    // MUST fill/select before the Next button becomes enabled
+
+    // First, check if there's a text input field to fill
+    const hasTextInput = await this.page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
+      for (const input of inputs) {
+        if (input.offsetParent !== null && !input.value && !input.disabled) {
+          return true;
+        }
+      }
+      return false;
+    }).catch(() => false);
+
+    if (hasTextInput) {
+      console.log('   Found text input field - filling with business name...');
+      // Fill with business name or a generic value
+      await this.act(`Type "${this.businessDetails.businessName}" into the text input field`);
+      await this.wait(WAIT_TIMES.medium);
+    } else {
+      // Try selection strategies for multiple choice / list questions
+      console.log('   Looking for selectable options...');
+      const selectionStrategies = [
+        // List/menu style - NAICS codes, industries, etc.
+        'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
+        // Card style - white rectangular cards
+        'Click on the white card containing the first answer option',
+        // Radio button style
+        'Click the empty circle or radio button on the left side of the first answer',
+        // Direct text click
+        'Click the first selectable text option under the question'
+      ];
+
+      let selectionSuccess = false;
+      for (const strategy of selectionStrategies) {
+        try {
+          await this.act(strategy);
+          selectionSuccess = true;
+          console.log(`   Selected via: ${strategy}`);
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+
+      if (!selectionSuccess) {
+        console.log('   Could not select option - trying generic action');
+        await this.act('Click any selectable option or fill any input field on this page');
+      }
+    }
+
+    await this.wait(WAIT_TIMES.medium);
+
+    // Now click Next (should be enabled after filling/selecting)
+    await this.act('Click the "Next" button');
+    await this.waitForNavigation();
+  }
+
+  async handlePostCheckoutConclusion() {
+    console.log('   Post-checkout conclusion page - continuing to onboarding...');
+
+    // This is a summary page after all post-checkout upsells
+    // Need to click Continue/Get Started to proceed to the journey flow
+    const continueStrategies = [
+      'Click "Continue" button',
+      'Click "Get Started" button',
+      'Click "Next" button',
+      'Click "Go to Dashboard" button',
+      'Click "Start Your Journey" button',
+      'Click the primary black button to continue'
+    ];
+
+    for (const strategy of continueStrategies) {
+      try {
+        await this.act(strategy);
+        const navigated = await this.waitForNavigation();
+        if (navigated) {
+          console.log(`   Continued via: ${strategy}`);
+          return;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    // Fallback - click any prominent button
+    await this.act('Click the main call-to-action button on this page');
+    await this.waitForNavigation();
+  }
+
+  async handlePostCheckoutCheckout() {
+    // This is a checkout page for post-purchase products (like Business License Report)
+    // Decide whether to buy based on persona's test goals
+    const shouldBuy = this.testGoals.upsells?.postCheckoutProducts ?? false;
+    console.log(`   Post-checkout product checkout page - ${shouldBuy ? 'PURCHASING' : 'DECLINING'}...`);
+
+    if (shouldBuy) {
+      // Complete the purchase - use the checkout handler
+      await this.handleCheckout();
+    } else {
+      // Decline - look for "No thanks", "Skip", or similar decline options
+      const declineStrategies = [
+        'Click "No thanks" link or button',
+        'Click "Skip" link or button',
+        'Click "Maybe later" link',
+        'Click "Continue without" link',
+        'Click the secondary white/outline button to decline'
+      ];
+
+      for (const strategy of declineStrategies) {
+        try {
+          await this.act(strategy);
+          const navigated = await this.waitForNavigation();
+          if (navigated) {
+            console.log(`   Declined via: ${strategy}`);
+            return;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      // If standard decline options don't work, this might be a required step
+      // Try scrolling to find more options
+      console.log('   Looking for decline option after scrolling...');
+      await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await this.wait(WAIT_TIMES.medium);
+      await this.act('Click any link or button that lets you decline or skip this purchase');
+      await this.waitForNavigation();
+    }
   }
 
   // ==================== Helper Methods ====================
@@ -595,9 +734,10 @@ Do NOT return {"action":"wait"}.`
       const currentUrl = this.page.url();
       console.log(`\nStep ${stepCount}: URL = ${currentUrl}`);
 
-      // Stuck detection
+      // Stuck detection - allow more attempts for SPAs like checkout and journey
       const isCheckoutPage = currentUrl.includes('checkout');
-      const maxStuckAttempts = isCheckoutPage ? 10 : 5;
+      const isJourneyPage = currentUrl.includes('/f/journey') || currentUrl.includes('/f/');
+      const maxStuckAttempts = isCheckoutPage ? 10 : (isJourneyPage ? 15 : 5);
 
       if (currentUrl === urlAtStepStart) {
         stuckCount++;

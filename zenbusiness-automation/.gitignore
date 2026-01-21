@@ -1,0 +1,19 @@
+# OS files
+.DS_Store
+**/.DS_Store
+
+# Test artifacts
+test-runs/
+
+# Cache files
+step-cache.json
+
+# Environment
+.env
+.env.local
+
+# Node
+node_modules/
+
+# Reports (generated)
+reports/
