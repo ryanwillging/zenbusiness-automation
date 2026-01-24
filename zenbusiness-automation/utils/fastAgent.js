@@ -937,9 +937,18 @@ Be concise. Focus on the NEXT action needed.`
     // MUST fill/select before the Next button becomes enabled
 
     // First, check if there's a text input field to fill
+    // IMPORTANT: Exclude combobox/autocomplete inputs (Material-UI Autocomplete uses input[role="combobox"])
     const hasTextInput = await this.page.evaluate(() => {
       const inputs = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
       for (const input of inputs) {
+        // Skip if it's a combobox/autocomplete (dropdown, not text input)
+        if (input.getAttribute('role') === 'combobox' ||
+            input.getAttribute('aria-autocomplete') ||
+            input.closest('.MuiAutocomplete-root')) {
+          continue;
+        }
+
+        // Check if visible, empty, and enabled
         if (input.offsetParent !== null && !input.value && !input.disabled) {
           return true;
         }

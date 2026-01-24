@@ -89,9 +89,19 @@
       "error": "Did not reach confirmation page",
       "steps": 77,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T22:27:11.320Z",
+      "persona": "Anthony Harris",
+      "state": "Washington",
+      "business": "Coffee Roastery",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 73,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 9
+    "Did not reach confirmation page": 10
   }
 }
