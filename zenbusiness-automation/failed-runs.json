@@ -49,9 +49,19 @@
       "error": "Did not reach confirmation page",
       "steps": 76,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T21:02:05.541Z",
+      "persona": "Amanda Young",
+      "state": "Colorado",
+      "business": "Coffee Roastery",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 77,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 5
+    "Did not reach confirmation page": 6
   }
 }

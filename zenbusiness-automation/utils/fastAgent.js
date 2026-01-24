@@ -615,31 +615,44 @@ Do NOT return {"action":"wait"}.`
             type: 'text',
             text: `You are analyzing a ZenBusiness onboarding journey page.
 
+CRITICAL: Check for UNFILLED REQUIRED FIELDS first!
+- Look for dropdowns that say "Please select"
+- Look for empty text inputs with labels
+- Look for multiple numbered questions (1., 2., etc.) where some are filled and some are empty
+- CASCADING DROPDOWNS: If you see "1. Industry" filled but "2. Type of industry" still says "Please select", the second dropdown MUST be filled!
+
 IDENTIFY:
-1. What type of input is this page asking for?
+1. Are there any UNFILLED required fields?
+   - Empty dropdowns showing "Please select"
+   - Empty text inputs
+   - Unanswered numbered questions
+
+2. What type of input is this page asking for?
    - Text input field (DBA name, business details)
    - Card-style multiple choice (white rectangular cards with radio circles)
    - List/menu selection (dropdown or scrollable list of options)
    - Yes/No buttons
+   - Cascading dropdown (multiple related dropdowns)
 
-2. What is the question being asked?
+3. What is the question being asked?
 
-3. Provide a simple selector strategy:
-   - For text input: Where is the input field?
-   - For cards: Describe the first card option (position, text)
-   - For list: What's the first visible option?
-   - For buttons: Which button should we click?
+4. Provide action for the NEXT UNFILLED FIELD:
+   - If dropdown says "Please select", recommend "Click dropdown #2 and select first option"
+   - If text input empty, recommend "Fill the [field name] with [value]"
+   - If all fields filled, recommend "Click Next button"
 
-4. Is there a modal or popup blocking the view?
+5. Is the Next button disabled/greyed out? (this means required fields are missing)
 
 Return JSON: {
-  "inputType": "text|cards|list|buttons",
+  "inputType": "text|cards|list|buttons|dropdown",
   "question": "the question text",
-  "recommendation": "specific instruction for what to click or fill",
-  "hasBlockingModal": true|false
+  "recommendation": "specific instruction for NEXT action",
+  "hasBlockingModal": true|false,
+  "unfilledFields": ["description of any empty required fields"],
+  "nextButtonDisabled": true|false
 }
 
-Be concise. Focus on actionable selector guidance.`
+Be concise. Focus on the NEXT action needed.`
           }
         ]
       }]
@@ -649,6 +662,15 @@ Be concise. Focus on actionable selector guidance.`
       const text = response.content[0].text;
       const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || text);
       console.log(`   🎯 Vision analysis: ${parsed.inputType} - ${parsed.question}`);
+
+      // Log important details about unfilled fields
+      if (parsed.unfilledFields && parsed.unfilledFields.length > 0) {
+        console.log(`   ⚠️  Unfilled required fields: ${parsed.unfilledFields.join(', ')}`);
+      }
+      if (parsed.nextButtonDisabled) {
+        console.log(`   🔒 Next button is DISABLED - must fill required fields first`);
+      }
+
       return parsed;
     } catch (e) {
       console.log(`   ⚠️ Vision analysis failed: ${e.message}`);
@@ -957,7 +979,23 @@ Be concise. Focus on actionable selector guidance.`
             await this.wait(WAIT_TIMES.medium);
           }
 
-          if (analysis && analysis.recommendation) {
+          // CRITICAL: If Next button is disabled, there are unfilled required fields
+          if (analysis && analysis.nextButtonDisabled && analysis.unfilledFields && analysis.unfilledFields.length > 0) {
+            console.log(`   ⚠️  Cannot proceed - ${analysis.unfilledFields.length} required fields still empty`);
+            console.log(`   🎯 Focusing on unfilled fields: ${analysis.unfilledFields[0]}`);
+
+            // The recommendation should target the first unfilled field
+            if (analysis.recommendation) {
+              try {
+                await this.act(analysis.recommendation);
+                selectionSuccess = true;
+                console.log(`   ✅ Filled required field via vision: ${analysis.recommendation}`);
+              } catch (e) {
+                console.log(`   ⚠️  Failed to fill required field: ${e.message}`);
+              }
+            }
+          } else if (analysis && analysis.recommendation) {
+            // Normal case: no disabled button, proceed with recommendation
             try {
               await this.act(analysis.recommendation);
               selectionSuccess = true;
