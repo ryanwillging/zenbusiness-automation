@@ -59,9 +59,29 @@
       "error": "Did not reach confirmation page",
       "steps": 77,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T21:14:44.065Z",
+      "persona": "David Zhang",
+      "state": "Wyoming",
+      "business": "Prime Solutions",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc-addons/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 98,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T21:22:35.944Z",
+      "persona": "Brian Harris",
+      "state": "California",
+      "business": "Stellar Enterprises",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 77,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 6
+    "Did not reach confirmation page": 8
   }
 }

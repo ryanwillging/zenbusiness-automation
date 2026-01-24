@@ -668,7 +668,9 @@ IDENTIFY:
 3. What is the question being asked?
 
 4. Provide action for the NEXT UNFILLED FIELD:
-   - If dropdown says "Please select", recommend "Click dropdown #2 and select first option"
+   - If dropdown says "Please select", recommend:
+     * For NAICS/industry dropdowns: "Click the dropdown that says 'Please select', type 'Agriculture' to filter, then click the first result"
+     * For other dropdowns: "Click dropdown and select first option"
    - If text input empty, recommend "Fill the [field name] with [value]"
    - If all fields filled, recommend "Click Next button"
 
@@ -960,7 +962,32 @@ Be concise. Focus on the NEXT action needed.`
 
       let selectionSuccess = false;
 
-      // FIRST: Try direct selectors (FAST & RELIABLE!)
+      // FIRST: Check for empty dropdowns (searchable combobox)
+      const hasEmptyDropdown = await this.page.evaluate(() => {
+        const dropdowns = document.querySelectorAll('[role="combobox"], select, [class*="dropdown"]');
+        for (const dropdown of dropdowns) {
+          const text = dropdown.textContent || dropdown.value || '';
+          if (text.toLowerCase().includes('please select') && dropdown.offsetParent !== null) {
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      if (hasEmptyDropdown) {
+        console.log('   Found empty dropdown with "Please select" - using searchable dropdown strategy...');
+        try {
+          await this.act('Click the dropdown that says "Please select", type "Agriculture" into it, then click the first option that appears');
+          selectionSuccess = true;
+          console.log('   ✅ Filled searchable dropdown');
+          await this.wait(WAIT_TIMES.medium);
+        } catch (e) {
+          console.log(`   ⚠️  Searchable dropdown strategy failed: ${e.message}`);
+        }
+      }
+
+      // SECOND: Try direct selectors (FAST & RELIABLE!)
+      if (!selectionSuccess) {
       const directSelectors = [
         // Card-style with radio buttons (most common on journey)
         'label:has(input[type="radio"])',
@@ -994,6 +1021,7 @@ Be concise. Focus on the NEXT action needed.`
         } catch (e) {
           continue;
         }
+      }
       }
 
       // FALLBACK: Use AI if direct selectors didn't work
@@ -1041,6 +1069,8 @@ Be concise. Focus on the NEXT action needed.`
         if (!selectionSuccess) {
           console.log('   Trying generic AI fallback strategies...');
           const selectionStrategies = [
+            // Searchable dropdown - NAICS industry codes
+            'Click the dropdown that says "Please select", type "Agriculture", then click the first option that appears',
             // List/menu style - NAICS codes, industries, etc.
             'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
             // Card style - white rectangular cards
