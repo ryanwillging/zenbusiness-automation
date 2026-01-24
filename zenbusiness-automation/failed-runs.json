@@ -29,9 +29,29 @@
       "error": "Did not reach confirmation page",
       "steps": 77,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T20:12:25.688Z",
+      "persona": "Matthew Valdez",
+      "state": "Oregon",
+      "business": "Digital Marketing Agency",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 77,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T20:18:49.825Z",
+      "persona": "Michael Baker",
+      "state": "Colorado",
+      "business": "Pet Grooming Service",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 76,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 3
+    "Did not reach confirmation page": 5
   }
 }

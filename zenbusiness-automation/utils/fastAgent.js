@@ -103,22 +103,56 @@ export class FastAgent {
    */
   async closeModals() {
     const modalCloseSelectors = [
-      // X button (most common)
+      // X button variations (most common)
       'button[aria-label*="Close" i]',
       'button[aria-label*="Dismiss" i]',
-      '[role="dialog"] button:has-text("×")',
-      '[role="dialog"] button[class*="close"]',
-      // Modal overlay close buttons
-      '.modal button.close',
-      '.dialog button.close',
-      '[data-testid*="close"]',
-      '[data-testid*="dismiss"]',
-      // Generic close patterns
+      'button[title*="Close" i]',
+      // X symbol variations in buttons
+      'button:has-text("×")',  // Times symbol
+      'button:has-text("✕")',  // Multiplication X
+      'button:has-text("✖")',  // Heavy X
+      'button:has-text("X")',  // Capital X
+      // SVG close icons (common in modern UIs)
+      'button:has(svg)',       // Button containing SVG (very common for X icons)
+      '[role="button"]:has(svg)',
+      // Dialog-scoped close buttons
+      '[role="dialog"] button[aria-label*="Close" i]',
+      '[role="dialog"] button:has(svg)',
+      '[role="dialog"] button',  // Any button in dialog (if it's the only one, it's likely close)
+      // Class-based patterns
+      'button[class*="close" i]',
+      'button[class*="dismiss" i]',
+      '[class*="modal" i] button[class*="close" i]',
+      '[class*="dialog" i] button[class*="close" i]',
+      // Data attribute patterns
+      '[data-testid*="close" i]',
+      '[data-testid*="dismiss" i]',
+      '[data-dismiss="modal"]',
+      // Generic action text
       'button:has-text("No thanks")',
       'button:has-text("Maybe later")',
       'button:has-text("Not now")'
     ];
 
+    console.log('   🔍 Checking for blocking modals...');
+
+    // First, check if any modal/dialog is visible
+    const hasModal = await this.page.evaluate(() => {
+      const modals = document.querySelectorAll('[role="dialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
+      for (const modal of modals) {
+        if (modal.offsetParent !== null) return true;
+      }
+      return false;
+    }).catch(() => false);
+
+    if (!hasModal) {
+      console.log('   ℹ️  No blocking modals detected');
+      return false;
+    }
+
+    console.log('   🎯 Modal detected, attempting to close...');
+
+    // Try clicking close buttons
     for (const selector of modalCloseSelectors) {
       try {
         const element = this.page.locator(selector).first();
@@ -126,17 +160,58 @@ export class FastAgent {
         if (count > 0) {
           const isVisible = await element.isVisible({ timeout: 500 }).catch(() => false);
           if (isVisible) {
+            console.log(`   🎯 Found modal close button: ${selector}`);
             await element.click();
-            console.log(`   ✅ Closed modal via: ${selector}`);
+            console.log(`   ✅ Closed modal successfully`);
             await this.wait(WAIT_TIMES.medium);
             return true;
           }
         }
       } catch (e) {
+        // Silently try next selector
         continue;
       }
     }
 
+    // Fallback 1: Use AI to find and click the close button
+    console.log('   ⚠️  Could not find close button with selectors, trying AI...');
+    try {
+      await this.act('Click the X button or close button in the top-right corner of the dialog to close it');
+      await this.wait(WAIT_TIMES.medium);
+
+      // Verify modal is gone
+      const modalStillVisible = await this.page.evaluate(() => {
+        const modals = document.querySelectorAll('[role="dialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
+        for (const modal of modals) {
+          if (modal.offsetParent !== null) return true;
+        }
+        return false;
+      }).catch(() => false);
+
+      if (!modalStillVisible) {
+        console.log('   ✅ AI successfully closed modal');
+        return true;
+      }
+    } catch (e) {
+      console.log('   ⚠️  AI failed to close modal');
+    }
+
+    // Fallback 2: Press Escape key
+    console.log('   ⚠️  Trying Escape key as last resort...');
+    try {
+      // Access keyboard via underlying Playwright page if needed
+      const keyboard = this.page.keyboard || this.page._page?.keyboard;
+      if (keyboard) {
+        await keyboard.press('Escape');
+        await this.wait(WAIT_TIMES.brief);
+        console.log('   ✅ Pressed Escape key');
+        return true;
+      }
+    } catch (e) {
+      // Escape failed
+    }
+
+    console.log('   ❌ Failed to close modal with all methods');
     return false;
   }
 
@@ -730,6 +805,7 @@ Do NOT return {"action":"wait"}.`
     console.log('   Post-checkout journey page - analyzing page type...');
 
     // FIRST: Check for and close any blocking modals/dialogs
+    // Note: Main loop also checks, but we double-check here for journey-specific modals
     await this.closeModals();
 
     // Journey pages can have different input styles:
@@ -1041,6 +1117,9 @@ Do NOT return {"action":"wait"}.`
     while (stepCount < maxSteps) {
       stepCount++;
       await this.waitForCaptcha();
+
+      // Check for and close any blocking modals before proceeding
+      await this.closeModals();
 
       const currentUrl = this.page.url();
       console.log(`\nStep ${stepCount}: URL = ${currentUrl}`);
