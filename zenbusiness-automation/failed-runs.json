@@ -79,9 +79,19 @@
       "error": "Did not reach confirmation page",
       "steps": 77,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T21:31:32.492Z",
+      "persona": "Matthew Patel",
+      "state": "Wyoming",
+      "business": "Summit Solutions",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 77,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 8
+    "Did not reach confirmation page": 9
   }
 }
