@@ -99,9 +99,48 @@
       "error": "Did not reach confirmation page",
       "steps": 73,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T22:37:22.216Z",
+      "persona": "Michael Smith",
+      "state": "Wyoming",
+      "business": "Apex Solutions",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 85,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T23:07:45.468Z",
+      "persona": "Matthew Nelson",
+      "state": "Delaware",
+      "business": "Elite Solutions",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 78,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T23:09:21.748Z",
+      "persona": "Rachel Harris",
+      "state": "California",
+      "business": "Prime Co.",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T23:10:28.523Z",
+      "persona": "Michael Harris",
+      "state": "Colorado",
+      "business": "Zenith Group",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 10
+    "Did not reach confirmation page": 12,
+    "CAPTCHA timeout": 2
   }
 }

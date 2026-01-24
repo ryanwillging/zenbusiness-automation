@@ -938,23 +938,58 @@ Be concise. Focus on the NEXT action needed.`
 
     // First, check if there's a text input field to fill
     // IMPORTANT: Exclude combobox/autocomplete inputs (Material-UI Autocomplete uses input[role="combobox"])
-    const hasTextInput = await this.page.evaluate(() => {
+    const textInputDebugInfo = await this.page.evaluate(() => {
       const inputs = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
-      for (const input of inputs) {
+      const debugLog = [];
+      debugLog.push(`Found ${inputs.length} total inputs`);
+
+      let foundTextInput = false;
+      for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
+        const role = input.getAttribute('role');
+        const ariaAuto = input.getAttribute('aria-autocomplete');
+        const inMUI = input.closest('.MuiAutocomplete-root');
+        const visible = input.offsetParent !== null;
+        const hasValue = !!input.value;
+        const isDisabled = input.disabled;
+
+        const info = {
+          tagName: input.tagName,
+          type: input.type || 'none',
+          role: role,
+          ariaAutocomplete: ariaAuto,
+          inMuiAutocomplete: !!inMUI,
+          visible: visible,
+          hasValue: hasValue,
+          disabled: isDisabled,
+          value: input.value.slice(0, 30)
+        };
+
         // Skip if it's a combobox/autocomplete (dropdown, not text input)
-        if (input.getAttribute('role') === 'combobox' ||
-            input.getAttribute('aria-autocomplete') ||
-            input.closest('.MuiAutocomplete-root')) {
+        if (role === 'combobox' || ariaAuto || inMUI) {
+          debugLog.push(`Input ${i}: SKIPPED - ${JSON.stringify(info)}`);
           continue;
         }
 
         // Check if visible, empty, and enabled
-        if (input.offsetParent !== null && !input.value && !input.disabled) {
-          return true;
+        if (visible && !hasValue && !isDisabled) {
+          debugLog.push(`Input ${i}: MATCHES - ${JSON.stringify(info)}`);
+          foundTextInput = true;
+        } else {
+          debugLog.push(`Input ${i}: No match - ${JSON.stringify(info)}`);
         }
       }
-      return false;
-    }).catch(() => false);
+
+      return { hasTextInput: foundTextInput, debug: debugLog };
+    }).catch(() => ({ hasTextInput: false, debug: ['Error in evaluation'] }));
+
+    // Log debug info
+    if (textInputDebugInfo.debug && textInputDebugInfo.debug.length > 0) {
+      console.log('   [TEXT INPUT DEBUG]');
+      textInputDebugInfo.debug.forEach(line => console.log(`      ${line}`));
+    }
+
+    const hasTextInput = textInputDebugInfo.hasTextInput;
 
     if (hasTextInput) {
       console.log('   Found text input field - filling with business name...');
