@@ -346,10 +346,41 @@ export class FastAgent {
     const stepStart = Date.now();
     console.log(`\nAction: ${instruction}`);
 
+    // Track initial page/tab count
+    const initialPages = this.stagehand.context.pages().length;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         await this.stagehand.act(instruction);
         console.log(`   Done (${Date.now() - stepStart}ms)`);
+
+        // Check if a new tab was opened (privacy policy, terms, etc.)
+        await this.wait(500); // Brief wait for tab to fully open
+        const currentPages = this.stagehand.context.pages().length;
+
+        if (currentPages > initialPages) {
+          console.log(`   ⚠️  New tab detected (${currentPages} tabs) - closing and returning to main tab`);
+
+          // Close all extra tabs
+          const pages = this.stagehand.context.pages();
+          for (let i = pages.length - 1; i > 0; i--) {
+            try {
+              await pages[i].close();
+              console.log(`   ✅ Closed extra tab ${i}`);
+            } catch (e) {
+              console.log(`   ⚠️  Failed to close tab ${i}: ${e.message}`);
+            }
+          }
+
+          // Ensure we're focused on the main page
+          const mainPage = this.stagehand.context.pages()[0];
+          if (mainPage) {
+            await mainPage.bringToFront();
+            this.page = mainPage;
+            console.log(`   ✅ Returned to main tab`);
+          }
+        }
+
         this.stepLog.push({ action: instruction, success: true, duration: Date.now() - stepStart });
         return true;
       } catch (e) {
