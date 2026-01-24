@@ -962,27 +962,99 @@ Be concise. Focus on the NEXT action needed.`
 
       let selectionSuccess = false;
 
-      // FIRST: Check for empty dropdowns (searchable combobox)
-      const hasEmptyDropdown = await this.page.evaluate(() => {
-        const dropdowns = document.querySelectorAll('[role="combobox"], select, [class*="dropdown"]');
-        for (const dropdown of dropdowns) {
-          const text = dropdown.textContent || dropdown.value || '';
-          if (text.toLowerCase().includes('please select') && dropdown.offsetParent !== null) {
-            return true;
-          }
-        }
-        return false;
-      }).catch(() => false);
+      // FIRST: Check for Material-UI cascading dropdowns (ZenBusiness-specific)
+      // Pattern: Multiple numbered questions (1., 2., etc.) where first is filled but second is "Please select"
+      const cascadingDropdownInfo = await this.page.evaluate(() => {
+        // Check for numbered questions
+        const pageText = document.body.textContent;
+        const hasNumberedQuestions = /\d+\.\s+.*\?/.test(pageText);
 
-      if (hasEmptyDropdown) {
-        console.log('   Found empty dropdown with "Please select" - using searchable dropdown strategy...');
+        if (!hasNumberedQuestions) return { hasCascading: false };
+
+        // Check MUI Autocompletes for mixed states
+        const autocompletes = document.querySelectorAll('.MuiAutocomplete-root');
+        let filledCount = 0;
+        let emptyIndices = [];
+        let questionNumbers = [];
+
+        autocompletes.forEach((dropdown, idx) => {
+          if (dropdown.offsetParent === null) return;
+
+          const input = dropdown.querySelector('input[role="combobox"]');
+          const container = dropdown.closest('[class*="question"], section, div');
+
+          // Extract question number from container text
+          const containerText = container?.textContent || dropdown.parentElement?.textContent || '';
+          const numberMatch = containerText.match(/^(\d+)\.\s+/);
+          const questionNumber = numberMatch ? numberMatch[1] : null;
+
+          if (input) {
+            if (input.value && input.value !== '') {
+              filledCount++;
+              if (questionNumber) questionNumbers.push(parseInt(questionNumber));
+            } else if (containerText.includes('Please select') || !input.value) {
+              emptyIndices.push(idx);
+              if (questionNumber) questionNumbers.push(parseInt(questionNumber));
+            }
+          }
+        });
+
+        // Cascading: at least one filled, at least one empty, and we have question numbers
+        if (filledCount > 0 && emptyIndices.length > 0 && questionNumbers.length > 1) {
+          // Find the highest question number (likely the cascaded one)
+          const maxQuestionNum = Math.max(...questionNumbers);
+          return {
+            hasCascading: true,
+            emptyIndex: emptyIndices[0], // First empty dropdown
+            questionNumber: maxQuestionNum,
+            message: `Found cascading dropdown - Question ${maxQuestionNum} is empty while earlier questions are filled`
+          };
+        }
+
+        return { hasCascading: false };
+      }).catch(() => ({ hasCascading: false }));
+
+      if (cascadingDropdownInfo.hasCascading) {
+        console.log(`   ⚠️  ${cascadingDropdownInfo.message}`);
+        console.log('   Using Material-UI cascading dropdown strategy...');
         try {
-          await this.act('Click the dropdown that says "Please select", type "Agriculture" into it, then click the first option that appears');
+          // Target the SECOND/cascaded dropdown specifically
+          await this.act(`Look for question ${cascadingDropdownInfo.questionNumber} (the second dropdown question) that says "Please select". Click its input field, type "Agriculture" or the first category, wait for options to load, then click the first option`);
           selectionSuccess = true;
-          console.log('   ✅ Filled searchable dropdown');
+          console.log('   ✅ Filled cascading dropdown');
           await this.wait(WAIT_TIMES.medium);
         } catch (e) {
-          console.log(`   ⚠️  Searchable dropdown strategy failed: ${e.message}`);
+          console.log(`   ⚠️  Cascading dropdown strategy failed: ${e.message}`);
+        }
+      }
+
+      // SECOND: Check for any empty dropdown (non-cascading)
+      if (!selectionSuccess) {
+        const hasEmptyDropdown = await this.page.evaluate(() => {
+          const dropdowns = document.querySelectorAll('[role="combobox"], select, [class*="dropdown"], .MuiAutocomplete-root');
+          for (const dropdown of dropdowns) {
+            const text = dropdown.textContent || dropdown.value || '';
+            const input = dropdown.querySelector ? dropdown.querySelector('input') : null;
+            const inputValue = input?.value || '';
+
+            if ((text.toLowerCase().includes('please select') || inputValue === '') &&
+                dropdown.offsetParent !== null) {
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => false);
+
+        if (hasEmptyDropdown) {
+          console.log('   Found empty dropdown with "Please select" - using searchable dropdown strategy...');
+          try {
+            await this.act('Click the dropdown input field that says "Please select", type "Agriculture" into it, wait for the options to load, then click the first option that appears');
+            selectionSuccess = true;
+            console.log('   ✅ Filled searchable dropdown');
+            await this.wait(WAIT_TIMES.medium);
+          } catch (e) {
+            console.log(`   ⚠️  Searchable dropdown strategy failed: ${e.message}`);
+          }
         }
       }
 

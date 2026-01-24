@@ -11,13 +11,14 @@ A comprehensive guide to interacting with common UI elements based on industry b
 ## Table of Contents
 
 1. [Combobox / Searchable Dropdown](#combobox--searchable-dropdown)
-2. [Native Select Dropdown](#native-select-dropdown)
-3. [Modal Dialogs](#modal-dialogs)
-4. [Radio Button Groups](#radio-button-groups)
-5. [Card-Style Selection](#card-style-selection)
-6. [Text Input Fields](#text-input-fields)
-7. [Listbox / Menu Selection](#listbox--menu-selection)
-8. [Buttons](#buttons)
+2. [Material-UI Autocomplete (ZenBusiness)](#material-ui-autocomplete-zenbusiness)
+3. [Native Select Dropdown](#native-select-dropdown)
+4. [Modal Dialogs](#modal-dialogs)
+5. [Radio Button Groups](#radio-button-groups)
+6. [Card-Style Selection](#card-style-selection)
+7. [Text Input Fields](#text-input-fields)
+8. [Listbox / Menu Selection](#listbox--menu-selection)
+9. [Buttons](#buttons)
 
 ---
 
@@ -89,6 +90,201 @@ const isCombobox = await page.evaluate(() => {
 - [Combobox Pattern | WAI-ARIA APG](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/)
 - [Chakra UI Combobox](https://chakra-ui.com/docs/components/combobox)
 - [Ant Design Select](https://ant.design/components/select/)
+
+---
+
+## Material-UI Autocomplete (ZenBusiness)
+
+### Identification
+- **ZenBusiness uses Material-UI** exclusively for their design system
+- Component: `<Autocomplete>` from `@mui/material`
+- ARIA: `role="combobox"` with `aria-expanded`, `aria-controls`
+- Visual: Dropdown with "Please select" placeholder, search icon, dropdown arrow
+- Common in: NAICS industry selection (cascading dropdowns), state/county selection
+- DOM Structure:
+  ```html
+  <div class="MuiAutocomplete-root">
+    <input class="MuiInputBase-input" role="combobox" />
+    <button class="MuiAutocomplete-popupIndicator" />
+  </div>
+  ```
+
+### Cascading Autocompletes (CRITICAL for ZenBusiness)
+- **Pattern**: First autocomplete selection reveals a second autocomplete
+- **Example**:
+  1. "Tell us your industry" → Select "Agriculture, Forestry, Fishing and Hunting"
+  2. → Triggers: "What kind of Agriculture, Forestry, Fishing and Hunting business?"
+- **Detection**: Multiple numbered questions (1., 2., 3.) where some show selections and others show "Please select"
+
+### Interaction Pattern
+
+#### Method 1: Type-to-Filter (Most Reliable for MUI)
+```javascript
+// 1. Click the input field (NOT the button)
+await page.click('.MuiAutocomplete-root input[role="combobox"]');
+
+// 2. Type to filter options
+await page.keyboard.type('Agriculture');
+
+// 3. Wait for dropdown options to appear
+await page.waitForSelector('[role="listbox"] [role="option"]', { timeout: 2000 });
+
+// 4. Click first option
+await page.click('[role="listbox"] [role="option"]:first-child');
+
+// 5. Verify selection persisted
+await page.waitForTimeout(300);
+```
+
+**Stagehand equivalent:**
+```javascript
+// Single instruction that handles the full flow
+await act('Click the dropdown input field that says "Please select", type "Agriculture", wait for options to load, then click the first option that appears');
+```
+
+#### Method 2: Click Popup Indicator then Select
+```javascript
+// 1. Click dropdown arrow button
+await page.click('.MuiAutocomplete-popupIndicator');
+
+// 2. Wait for listbox
+await page.waitForSelector('[role="listbox"]');
+
+// 3. Click first option
+await page.click('[role="option"]:first-child');
+```
+
+#### Method 3: Arrow Key Navigation (Keyboard)
+```javascript
+// 1. Focus input
+await page.click('input[role="combobox"]');
+
+// 2. Open dropdown
+await page.keyboard.press('ArrowDown');
+
+// 3. Select first option
+await page.keyboard.press('Enter');
+```
+
+### Detection Strategy
+```javascript
+const hasEmptyMUIAutocomplete = await page.evaluate(() => {
+  // Look for MUI Autocomplete with "Please select"
+  const autocompletes = document.querySelectorAll('.MuiAutocomplete-root input[role="combobox"]');
+
+  for (const input of autocompletes) {
+    // Check if empty or shows placeholder
+    const value = input.value;
+    const placeholder = input.placeholder || '';
+
+    if ((!value || value === '') &&
+        placeholder.toLowerCase().includes('please select') &&
+        input.offsetParent !== null) {
+      return true;
+    }
+  }
+
+  // Check for "Please select" in parent container text
+  const containers = document.querySelectorAll('.MuiAutocomplete-root');
+  for (const container of containers) {
+    if (container.textContent.includes('Please select') &&
+        container.offsetParent !== null) {
+      return true;
+    }
+  }
+
+  return false;
+});
+```
+
+### Cascading Dropdown Detection
+```javascript
+const hasCascadingDropdowns = await page.evaluate(() => {
+  // Look for numbered questions (1., 2., etc.)
+  const pageText = document.body.textContent;
+  const hasNumberedQuestions = /\d+\.\s+.*\?/.test(pageText);
+
+  if (!hasNumberedQuestions) return false;
+
+  // Check if some dropdowns are filled and others are "Please select"
+  const dropdowns = document.querySelectorAll('.MuiAutocomplete-root');
+  let filledCount = 0;
+  let emptyCount = 0;
+
+  for (const dropdown of dropdowns) {
+    const input = dropdown.querySelector('input[role="combobox"]');
+    if (!input || input.offsetParent === null) continue;
+
+    if (input.value && input.value !== '') {
+      filledCount++;
+    } else if (dropdown.textContent.includes('Please select')) {
+      emptyCount++;
+    }
+  }
+
+  // Cascading: some filled, some empty
+  return filledCount > 0 && emptyCount > 0;
+});
+```
+
+### Troubleshooting
+
+**Empty after typing:**
+- MUI Autocomplete loads options asynchronously
+- Add longer wait: `await page.waitForTimeout(1000)` after typing
+- Check network tab for API calls completing
+
+**Click doesn't register:**
+- Don't click the label - click the input field itself
+- Selector: `.MuiAutocomplete-root input` NOT `.MuiAutocomplete-root`
+
+**Dropdown closes immediately:**
+- `blur` event triggered - keep focus by using keyboard navigation
+- Or click inside listbox before it closes: `await page.click('[role="listbox"]', { force: true })`
+
+**Value doesn't persist:**
+- Click outside the autocomplete to trigger `onChange`
+- Or press `Tab` to move to next field
+- Verify with screenshot that value persisted
+
+**Second dropdown not detected (Cascading):**
+- Use fullPage screenshots to see all dropdowns
+- Explicitly check for multiple numbered questions
+- Prioritize filling empty dropdowns before clicking Next
+
+### ZenBusiness-Specific Behavior
+
+**NAICS Industry Selection:**
+- Question 1: "Tell us your industry" (top-level categories)
+- Question 2: "What kind of [Industry] business?" (specific NAICS codes)
+- Both must be filled before Next button becomes enabled
+
+**Detection Order:**
+1. Check for Question 2 first (cascading dropdown)
+2. If empty, fill Question 2
+3. Only click Next when all numbered questions answered
+
+**Recommended Strategy for Journey Flow:**
+```javascript
+// Priority 1: Check for cascading dropdowns
+if (hasCascadingDropdowns && hasEmptyMUIAutocomplete) {
+  await act('Look for the SECOND dropdown question (question 2, 3, etc.) that says "Please select". Click it, type "Agriculture" or the first category name, then select the first option.');
+  return;
+}
+
+// Priority 2: Check for any empty dropdown
+if (hasEmptyMUIAutocomplete) {
+  await act('Click the dropdown that says "Please select", type "Agriculture", then click the first option');
+  return;
+}
+
+// Priority 3: Click Next
+await act('Click Next button');
+```
+
+### Sources
+- [Material-UI Autocomplete](https://mui.com/material-ui/react-autocomplete/)
+- [MUI Select Component](https://mui.com/material-ui/react-select/)
 
 ---
 
