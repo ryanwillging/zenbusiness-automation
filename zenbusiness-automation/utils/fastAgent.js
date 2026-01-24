@@ -16,6 +16,7 @@ import {
   CTA_SELECTORS,
   CHECKOUT_SELECTORS,
   COUNTY_SELECTORS,
+  FIELD_CONFIG,
   getFieldValue,
   getFieldSelectors
 } from './config.js';
@@ -92,6 +93,178 @@ export class FastAgent {
     console.log(`Navigating to ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
     await this.wait(WAIT_TIMES.short);
+  }
+
+  // ==================== Direct HTML Interaction Methods ====================
+
+  /**
+   * Detect and close any blocking modals or dialogs
+   * @returns {boolean} - True if a modal was closed
+   */
+  async closeModals() {
+    const modalCloseSelectors = [
+      // X button (most common)
+      'button[aria-label*="Close" i]',
+      'button[aria-label*="Dismiss" i]',
+      '[role="dialog"] button:has-text("×")',
+      '[role="dialog"] button[class*="close"]',
+      // Modal overlay close buttons
+      '.modal button.close',
+      '.dialog button.close',
+      '[data-testid*="close"]',
+      '[data-testid*="dismiss"]',
+      // Generic close patterns
+      'button:has-text("No thanks")',
+      'button:has-text("Maybe later")',
+      'button:has-text("Not now")'
+    ];
+
+    for (const selector of modalCloseSelectors) {
+      try {
+        const element = this.page.locator(selector).first();
+        const count = await element.count();
+        if (count > 0) {
+          const isVisible = await element.isVisible({ timeout: 500 }).catch(() => false);
+          if (isVisible) {
+            await element.click();
+            console.log(`   ✅ Closed modal via: ${selector}`);
+            await this.wait(WAIT_TIMES.medium);
+            return true;
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Fill a field using direct Playwright selectors (no AI)
+   * @param {string} fieldName - Field name from FIELD_CONFIG (e.g., 'firstName', 'businessName')
+   * @param {*} customValue - Optional custom value (otherwise uses persona/business data)
+   * @returns {boolean} - Success status
+   */
+  async fillDirect(fieldName, customValue = null) {
+    // Look up field config by exact key match
+    const fieldConfig = FIELD_CONFIG[fieldName];
+    if (!fieldConfig) {
+      console.log(`   fillDirect: No config found for "${fieldName}"`);
+      return false;
+    }
+
+    const value = customValue || fieldConfig.getValue(this.persona, this.businessDetails);
+    if (!value) {
+      console.log(`   fillDirect: No value for "${fieldName}"`);
+      return false;
+    }
+
+    console.log(`\nFill Direct: ${fieldName} = "${value}"`);
+    const stepStart = Date.now();
+
+    // Try each selector until one works
+    for (const selector of fieldConfig.selectors) {
+      try {
+        const element = this.page.locator(selector).first();
+        const count = await element.count();
+        if (count === 0) continue;
+
+        // Check if visible and enabled
+        const isVisible = await element.isVisible({ timeout: 1000 }).catch(() => false);
+        const isEnabled = await element.isEnabled({ timeout: 1000 }).catch(() => false);
+
+        if (!isVisible || !isEnabled) continue;
+
+        // Fill the field
+        await element.fill(value);
+        await this.wait(WAIT_TIMES.brief);
+        console.log(`   ✅ Filled via direct selector (${Date.now() - stepStart}ms): ${selector}`);
+        return true;
+      } catch (e) {
+        // Try next selector
+        continue;
+      }
+    }
+
+    console.log(`   ❌ fillDirect failed - no selector worked (${Date.now() - stepStart}ms)`);
+    return false;
+  }
+
+  /**
+   * Click an element using direct Playwright selector (no AI)
+   * @param {string|string[]} selectors - Single selector or array of selectors to try
+   * @param {object} options - Click options (timeout, force, etc.)
+   * @returns {boolean} - Success status
+   */
+  async clickDirect(selectors, options = {}) {
+    const selectorArray = Array.isArray(selectors) ? selectors : [selectors];
+    const stepStart = Date.now();
+
+    for (const selector of selectorArray) {
+      try {
+        const element = this.page.locator(selector).first();
+        const count = await element.count();
+        if (count === 0) continue;
+
+        // Check if visible and enabled
+        const isVisible = await element.isVisible({ timeout: 1000 }).catch(() => false);
+        const isEnabled = await element.isEnabled({ timeout: 1000 }).catch(() => false);
+
+        if (!isVisible || !isEnabled) continue;
+
+        // Click the element
+        await element.click(options);
+        await this.wait(WAIT_TIMES.brief);
+        console.log(`   ✅ Clicked via direct selector (${Date.now() - stepStart}ms): ${selector}`);
+        return true;
+      } catch (e) {
+        // Try next selector
+        continue;
+      }
+    }
+
+    console.log(`   ❌ clickDirect failed - no selector worked (${Date.now() - stepStart}ms)`);
+    return false;
+  }
+
+  /**
+   * Select from dropdown using direct Playwright selector (no AI)
+   * @param {string} value - Value to select
+   * @param {string[]} selectors - Array of selectors to try
+   * @returns {boolean} - Success status
+   */
+  async selectDirect(value, selectors) {
+    const stepStart = Date.now();
+
+    for (const selector of selectors) {
+      try {
+        const element = this.page.locator(selector).first();
+        const count = await element.count();
+        if (count === 0) continue;
+
+        // Check if visible and enabled
+        const isVisible = await element.isVisible({ timeout: 1000 }).catch(() => false);
+        if (!isVisible) continue;
+
+        // Try to select by value, label, or index
+        await element.selectOption({ label: value }, { timeout: 2000 }).catch(async () => {
+          await element.selectOption({ value: value }).catch(async () => {
+            await element.selectOption({ index: 0 });
+          });
+        });
+
+        await this.wait(WAIT_TIMES.brief);
+        console.log(`   ✅ Selected via direct selector (${Date.now() - stepStart}ms): ${selector}`);
+        return true;
+      } catch (e) {
+        // Try next selector
+        continue;
+      }
+    }
+
+    console.log(`   ❌ selectDirect failed - no selector worked (${Date.now() - stepStart}ms)`);
+    return false;
   }
 
   async act(instruction, maxRetries = 3) {
@@ -348,10 +521,26 @@ Do NOT return {"action":"wait"}.`
 
   async handleBusinessState() {
     console.log('   Business state page...');
-    await this.select('state', this.persona.state);
+
+    // Try direct state selection first (FAST!)
+    const stateSelectors = [
+      'select[name*="state"]',
+      'select[id*="state"]',
+      '[aria-label*="state" i]',
+      'select'
+    ];
+
+    let success = await this.selectDirect(this.persona.state, stateSelectors);
+
+    // Fall back to AI if direct selection fails
+    if (!success) {
+      console.log('   Falling back to AI for state selection...');
+      await this.select('state', this.persona.state);
+    }
+
     await this.wait(WAIT_TIMES.long);
 
-    // Check for county requirement
+    // Check for county requirement (already uses direct selectors)
     const countySelected = await this.trySelectCounty();
     if (!countySelected) {
       await this.act('If there is a county dropdown visible, select the first available option');
@@ -364,17 +553,41 @@ Do NOT return {"action":"wait"}.`
 
   async handleBusinessName() {
     console.log('   Business name page...');
-    await this.fill('business name', this.businessDetails.businessName);
+
+    // Try direct HTML filling first (fast!)
+    let success = await this.fillDirect('businessName');
+
+    // Fall back to AI if direct method fails
+    if (!success) {
+      console.log('   Falling back to AI for business name...');
+      await this.fill('business name', this.businessDetails.businessName);
+    }
+
     await this.clickCTA();
     await this.waitForNavigation();
   }
 
   async handleContactInfo() {
     console.log('   Contact info page...');
-    await this.fill('first name', this.persona.firstName);
-    await this.fill('last name', this.persona.lastName);
-    await this.fill('email', this.persona.email);
-    await this.fill('phone', this.persona.phone);
+
+    // Try direct HTML filling first (fast!)
+    const fields = ['firstName', 'lastName', 'email', 'phone'];
+    let allSuccess = true;
+
+    for (const field of fields) {
+      const success = await this.fillDirect(field);
+      if (!success) allSuccess = false;
+    }
+
+    // Fall back to AI if any field failed
+    if (!allSuccess) {
+      console.log('   Some fields failed, using AI fallback...');
+      await this.fill('first name', this.persona.firstName);
+      await this.fill('last name', this.persona.lastName);
+      await this.fill('email', this.persona.email);
+      await this.fill('phone', this.persona.phone);
+    }
+
     await this.clickCTA();
     await this.waitForNavigation();
   }
@@ -401,8 +614,21 @@ Do NOT return {"action":"wait"}.`
 
   async handleAccountCreation() {
     console.log('   Account creation page...');
-    await this.fill('email', this.persona.email);
-    await this.fill('password', TEST_CREDENTIALS.password);
+
+    // Try direct filling first (FAST!)
+    let emailSuccess = await this.fillDirect('email');
+    let passwordSuccess = await this.fillDirect('password');
+
+    // Fall back to AI if needed
+    if (!emailSuccess) {
+      console.log('   Falling back to AI for email...');
+      await this.fill('email', this.persona.email);
+    }
+    if (!passwordSuccess) {
+      console.log('   Falling back to AI for password...');
+      await this.fill('password', TEST_CREDENTIALS.password);
+    }
+
     await this.clickCTA();
     await this.waitForNavigation();
     await this.waitForCaptcha();
@@ -427,11 +653,47 @@ Do NOT return {"action":"wait"}.`
     const label = config.label || 'Generic';
     console.log(`   ${label} upsell - ${shouldBuy ? 'ACCEPTING' : 'DECLINING'}...`);
 
+    let success = false;
+
+    // Try direct selectors first (FAST!)
     if (shouldBuy) {
-      await this.act('Click the primary black button to accept (may say "Yes", "Add", "Appoint", "Keep me covered")');
+      // Accept selectors - primary buttons
+      const acceptSelectors = [
+        'button:has-text("Yes, add")',
+        'button:has-text("Yes")',
+        'button:has-text("Add")',
+        'button:has-text("Appoint")',
+        'button:has-text("Keep me covered")',
+        'button[class*="primary"]',
+        'button[class*="black"]'
+      ];
+      success = await this.clickDirect(acceptSelectors);
     } else {
-      await this.act('Click the secondary white/outline button to decline (may say "No", "Skip", "figure it out myself", "appoint someone else")');
+      // Decline selectors - secondary buttons
+      const declineSelectors = [
+        'button:has-text("No thanks")',
+        'button:has-text("No")',
+        'button:has-text("Skip")',
+        'a:has-text("Skip")',
+        'button:has-text("figure it out myself")',
+        'button:has-text("appoint someone else")',
+        'button:has-text("Maybe later")',
+        'button[class*="secondary"]',
+        'button[class*="outline"]'
+      ];
+      success = await this.clickDirect(declineSelectors);
     }
+
+    // Fall back to AI if direct selectors fail
+    if (!success) {
+      console.log('   Direct selectors failed, using AI fallback...');
+      if (shouldBuy) {
+        await this.act('Click the primary black button to accept (may say "Yes", "Add", "Appoint", "Keep me covered")');
+      } else {
+        await this.act('Click the secondary white/outline button to decline (may say "No", "Skip", "figure it out myself", "appoint someone else")');
+      }
+    }
+
     await this.waitForNavigation();
   }
 
@@ -467,6 +729,9 @@ Do NOT return {"action":"wait"}.`
   async handlePostCheckoutJourney() {
     console.log('   Post-checkout journey page - analyzing page type...');
 
+    // FIRST: Check for and close any blocking modals/dialogs
+    await this.closeModals();
+
     // Journey pages can have different input styles:
     // 1. Text input fields (DBA name, business details, etc.)
     // 2. Card-style multiple choice (white cards with radio circles)
@@ -486,38 +751,84 @@ Do NOT return {"action":"wait"}.`
 
     if (hasTextInput) {
       console.log('   Found text input field - filling with business name...');
-      // Fill with business name or a generic value
-      await this.act(`Type "${this.businessDetails.businessName}" into the text input field`);
+      // Try direct filling first (FAST!)
+      let success = await this.fillDirect('businessName');
+      if (!success) {
+        // Fall back to AI
+        await this.act(`Type "${this.businessDetails.businessName}" into the text input field`);
+      }
       await this.wait(WAIT_TIMES.medium);
     } else {
       // Try selection strategies for multiple choice / list questions
       console.log('   Looking for selectable options...');
-      const selectionStrategies = [
-        // List/menu style - NAICS codes, industries, etc.
-        'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
-        // Card style - white rectangular cards
-        'Click on the white card containing the first answer option',
-        // Radio button style
-        'Click the empty circle or radio button on the left side of the first answer',
-        // Direct text click
-        'Click the first selectable text option under the question'
-      ];
 
       let selectionSuccess = false;
-      for (const strategy of selectionStrategies) {
+
+      // FIRST: Try direct selectors (FAST & RELIABLE!)
+      const directSelectors = [
+        // Card-style with radio buttons (most common on journey)
+        'label:has(input[type="radio"])',
+        'div[role="radio"]',
+        'button[role="radio"]',
+        // Card containers
+        '[class*="card"][class*="option"]',
+        '[class*="choice"]',
+        // List items
+        'li[role="option"]',
+        '[role="listbox"] > *',
+        // Yes/No buttons
+        'button:has-text("Yes")',
+        'button:has-text("No")'
+      ];
+
+      for (const selector of directSelectors) {
         try {
-          await this.act(strategy);
-          selectionSuccess = true;
-          console.log(`   Selected via: ${strategy}`);
-          break;
+          const elements = await this.page.locator(selector);
+          const count = await elements.count();
+          if (count > 0) {
+            const firstElement = elements.first();
+            const isVisible = await firstElement.isVisible({ timeout: 500 }).catch(() => false);
+            if (isVisible) {
+              await firstElement.click();
+              selectionSuccess = true;
+              console.log(`   ✅ Selected via direct selector (${selector})`);
+              break;
+            }
+          }
         } catch (e) {
           continue;
         }
       }
 
+      // FALLBACK: Use AI if direct selectors didn't work
       if (!selectionSuccess) {
-        console.log('   Could not select option - trying generic action');
-        await this.act('Click any selectable option or fill any input field on this page');
+        console.log('   Direct selectors failed, trying AI fallback...');
+        const selectionStrategies = [
+          // List/menu style - NAICS codes, industries, etc.
+          'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
+          // Card style - white rectangular cards
+          'Click on the white card containing the first answer option',
+          // Radio button style
+          'Click the empty circle or radio button on the left side of the first answer',
+          // Direct text click
+          'Click the first selectable text option under the question'
+        ];
+
+        for (const strategy of selectionStrategies) {
+          try {
+            await this.act(strategy);
+            selectionSuccess = true;
+            console.log(`   Selected via AI: ${strategy}`);
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+
+        if (!selectionSuccess) {
+          console.log('   Could not select option - trying generic action');
+          await this.act('Click any selectable option or fill any input field on this page');
+        }
       }
     }
 

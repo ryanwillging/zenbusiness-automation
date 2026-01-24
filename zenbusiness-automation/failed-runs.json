@@ -1,4 +1,37 @@
 {
-  "runs": [],
-  "summary": {}
+  "runs": [
+    {
+      "timestamp": "2026-01-24T18:50:03.041Z",
+      "persona": "Amanda Kim",
+      "state": "Nevada",
+      "business": "Craft Brewery",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 76,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T19:42:30.548Z",
+      "persona": "Amanda Baker",
+      "state": "Texas",
+      "business": "Craft Brewery",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/contact-info",
+      "error": "Did not reach confirmation page",
+      "steps": 8,
+      "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-24T19:49:39.872Z",
+      "persona": "Michael Smith",
+      "state": "Washington",
+      "business": "Digital Marketing Agency",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 77,
+      "screenshotFolder": null
+    }
+  ],
+  "summary": {
+    "Did not reach confirmation page": 3
+  }
 }
