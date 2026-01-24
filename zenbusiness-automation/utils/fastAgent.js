@@ -592,6 +592,70 @@ Do NOT return {"action":"wait"}.`
     }
   }
 
+  /**
+   * Use Claude's vision to interpret journey page and get selector guidance
+   * Better for complex visual layouts where a11y tree lacks context
+   */
+  async analyzeJourneyPageWithVision() {
+    console.log('   📸 Using Claude vision to analyze page...');
+
+    // IMPORTANT: Use fullPage: true to capture elements below the fold
+    // Journey pages often have options that require scrolling
+    const screenshot = await this.page.screenshot({ type: 'png', fullPage: true });
+    const base64 = screenshot.toString('base64');
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-haiku-latest',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } },
+          {
+            type: 'text',
+            text: `You are analyzing a ZenBusiness onboarding journey page.
+
+IDENTIFY:
+1. What type of input is this page asking for?
+   - Text input field (DBA name, business details)
+   - Card-style multiple choice (white rectangular cards with radio circles)
+   - List/menu selection (dropdown or scrollable list of options)
+   - Yes/No buttons
+
+2. What is the question being asked?
+
+3. Provide a simple selector strategy:
+   - For text input: Where is the input field?
+   - For cards: Describe the first card option (position, text)
+   - For list: What's the first visible option?
+   - For buttons: Which button should we click?
+
+4. Is there a modal or popup blocking the view?
+
+Return JSON: {
+  "inputType": "text|cards|list|buttons",
+  "question": "the question text",
+  "recommendation": "specific instruction for what to click or fill",
+  "hasBlockingModal": true|false
+}
+
+Be concise. Focus on actionable selector guidance.`
+          }
+        ]
+      }]
+    });
+
+    try {
+      const text = response.content[0].text;
+      const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || text);
+      console.log(`   🎯 Vision analysis: ${parsed.inputType} - ${parsed.question}`);
+      return parsed;
+    } catch (e) {
+      console.log(`   ⚠️ Vision analysis failed: ${e.message}`);
+      return null;
+    }
+  }
+
   // ==================== Page Handlers ====================
 
   async handleBusinessState() {
@@ -808,6 +872,9 @@ Do NOT return {"action":"wait"}.`
     // Note: Main loop also checks, but we double-check here for journey-specific modals
     await this.closeModals();
 
+    // Use vision-based AI for journey pages since they have complex visual layouts
+    const useVisionAI = true;  // Toggle to compare approaches
+
     // Journey pages can have different input styles:
     // 1. Text input fields (DBA name, business details, etc.)
     // 2. Card-style multiple choice (white cards with radio circles)
@@ -878,32 +945,58 @@ Do NOT return {"action":"wait"}.`
 
       // FALLBACK: Use AI if direct selectors didn't work
       if (!selectionSuccess) {
-        console.log('   Direct selectors failed, trying AI fallback...');
-        const selectionStrategies = [
-          // List/menu style - NAICS codes, industries, etc.
-          'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
-          // Card style - white rectangular cards
-          'Click on the white card containing the first answer option',
-          // Radio button style
-          'Click the empty circle or radio button on the left side of the first answer',
-          // Direct text click
-          'Click the first selectable text option under the question'
-        ];
+        console.log('   Direct selectors failed, trying vision-guided approach...');
 
-        for (const strategy of selectionStrategies) {
-          try {
-            await this.act(strategy);
-            selectionSuccess = true;
-            console.log(`   Selected via AI: ${strategy}`);
-            break;
-          } catch (e) {
-            continue;
+        // Use Claude's vision to understand what we're looking at
+        if (useVisionAI) {
+          const analysis = await this.analyzeJourneyPageWithVision();
+
+          if (analysis && analysis.hasBlockingModal) {
+            console.log('   Vision detected blocking modal - attempting to close...');
+            await this.closeModals();
+            await this.wait(WAIT_TIMES.medium);
+          }
+
+          if (analysis && analysis.recommendation) {
+            try {
+              await this.act(analysis.recommendation);
+              selectionSuccess = true;
+              console.log(`   ✅ Selected via vision guidance: ${analysis.recommendation}`);
+            } catch (e) {
+              console.log(`   ⚠️  Vision-guided action failed: ${e.message}`);
+            }
           }
         }
 
+        // Final fallback: Try generic AI strategies
         if (!selectionSuccess) {
-          console.log('   Could not select option - trying generic action');
-          await this.act('Click any selectable option or fill any input field on this page');
+          console.log('   Trying generic AI fallback strategies...');
+          const selectionStrategies = [
+            // List/menu style - NAICS codes, industries, etc.
+            'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
+            // Card style - white rectangular cards
+            'Click on the white card containing the first answer option',
+            // Radio button style
+            'Click the empty circle or radio button on the left side of the first answer',
+            // Direct text click
+            'Click the first selectable text option under the question'
+          ];
+
+          for (const strategy of selectionStrategies) {
+            try {
+              await this.act(strategy);
+              selectionSuccess = true;
+              console.log(`   Selected via AI: ${strategy}`);
+              break;
+            } catch (e) {
+              continue;
+            }
+          }
+
+          if (!selectionSuccess) {
+            console.log('   Could not select option - trying generic action');
+            await this.act('Click any selectable option or fill any input field on this page');
+          }
         }
       }
     }
