@@ -716,6 +716,12 @@ export class CheckoutHandler {
       // Take screenshot before clicking Place Order
       await this.agent.saveScreenshot('before_place_order');
 
+      // CRITICAL: Scroll to payment section again before Place Order
+      // Page may have scrolled back up during field filling
+      console.log('     Scrolling to Place Order button...');
+      await this.scrollToPayment();
+      await this.agent.wait(WAIT_TIMES.brief);
+
       // STEP 5: Try Place Order - wait longer for payment processing
       console.log('     5. Click Place Order...');
       const urlBefore = await this.page.url();
@@ -962,6 +968,11 @@ export class CheckoutHandler {
   async submitOrder() {
     console.log('   Submitting order...');
     await this.agent.wait(WAIT_TIMES.long);
+
+    // CRITICAL: Scroll to payment section before clicking Place Order
+    console.log('   Scrolling to Place Order button...');
+    await this.scrollToPayment();
+    await this.agent.wait(WAIT_TIMES.brief);
 
     // Try direct selectors first
     const clicked = await this.trySubmit();

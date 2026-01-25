@@ -166,10 +166,20 @@
       "error": "Did not reach confirmation page",
       "steps": 76,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-25T03:16:07.963Z",
+      "persona": "Sarah Foster",
+      "state": "Nevada",
+      "business": "Eco-friendly Cleaning Service",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/checkout",
+      "error": "Did not reach confirmation page",
+      "steps": 170,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 14,
+    "Did not reach confirmation page": 15,
     "CAPTCHA timeout": 3
   }
 }
