@@ -923,6 +923,10 @@ Be concise. Focus on the NEXT action needed.`
   async handlePostCheckoutJourney() {
     console.log('   Post-checkout journey page - analyzing page type...');
 
+    console.log('   ═══════════════════════════════════════════════');
+    console.log('   🔍 JOURNEY PAGE HANDLER - Decision Flow Analysis');
+    console.log('   ═══════════════════════════════════════════════');
+
     // FIRST: Check for and close any blocking modals/dialogs
     // Note: Main loop also checks, but we double-check here for journey-specific modals
     await this.closeModals();
@@ -935,6 +939,15 @@ Be concise. Focus on the NEXT action needed.`
     // 2. Card-style multiple choice (white cards with radio circles)
     // 3. List/menu selection (text items in a dropdown-like list)
     // MUST fill/select before the Next button becomes enabled
+
+    console.log('   Decision flow order:');
+    console.log('      1. Text input detection (with combobox exclusion)');
+    console.log('      2. Cascading dropdown detection (MUI)');
+    console.log('      3. Empty dropdown detection');
+    console.log('      4. Direct selector attempts');
+    console.log('      5. Vision AI analysis (if enabled)');
+    console.log('      6. Generic AI fallback');
+    console.log('');
 
     // First, check if there's a text input field to fill
     // IMPORTANT: Exclude combobox/autocomplete inputs (Material-UI Autocomplete uses input[role="combobox"])
@@ -1013,16 +1026,29 @@ Be concise. Focus on the NEXT action needed.`
         const pageText = document.body.textContent;
         const hasNumberedQuestions = /\d+\.\s+.*\?/.test(pageText);
 
-        if (!hasNumberedQuestions) return { hasCascading: false };
+        const debugLog = [];
+        debugLog.push(`Numbered questions detected: ${hasNumberedQuestions}`);
+
+        if (!hasNumberedQuestions) {
+          return { hasCascading: false, debug: debugLog };
+        }
 
         // Check MUI Autocompletes for mixed states
         const autocompletes = document.querySelectorAll('.MuiAutocomplete-root');
+        debugLog.push(`Found ${autocompletes.length} MUI Autocomplete components`);
+
         let filledCount = 0;
         let emptyIndices = [];
         let questionNumbers = [];
+        const dropdownStates = [];
 
         autocompletes.forEach((dropdown, idx) => {
-          if (dropdown.offsetParent === null) return;
+          const visible = dropdown.offsetParent !== null;
+
+          if (!visible) {
+            debugLog.push(`  Dropdown ${idx}: NOT VISIBLE (skipped)`);
+            return;
+          }
 
           const input = dropdown.querySelector('input[role="combobox"]');
           const container = dropdown.closest('[class*="question"], section, div');
@@ -1031,32 +1057,64 @@ Be concise. Focus on the NEXT action needed.`
           const containerText = container?.textContent || dropdown.parentElement?.textContent || '';
           const numberMatch = containerText.match(/^(\d+)\.\s+/);
           const questionNumber = numberMatch ? numberMatch[1] : null;
+          const questionText = containerText.slice(0, 80).replace(/\n/g, ' ');
 
           if (input) {
-            if (input.value && input.value !== '') {
+            const inputValue = input.value || '';
+            const isFilled = inputValue && inputValue !== '';
+            const hasPlaceholder = containerText.includes('Please select');
+
+            const state = {
+              idx,
+              questionNumber,
+              isFilled,
+              inputValue: inputValue.slice(0, 30),
+              hasPlaceholder,
+              questionText
+            };
+
+            dropdownStates.push(state);
+
+            if (isFilled) {
               filledCount++;
               if (questionNumber) questionNumbers.push(parseInt(questionNumber));
-            } else if (containerText.includes('Please select') || !input.value) {
+              debugLog.push(`  Dropdown ${idx}: FILLED - Q${questionNumber} = "${inputValue.slice(0, 30)}"`);
+            } else if (hasPlaceholder || !inputValue) {
               emptyIndices.push(idx);
               if (questionNumber) questionNumbers.push(parseInt(questionNumber));
+              debugLog.push(`  Dropdown ${idx}: EMPTY - Q${questionNumber} (Please select)`);
             }
+          } else {
+            debugLog.push(`  Dropdown ${idx}: NO INPUT FOUND`);
           }
         });
+
+        debugLog.push(`Summary: ${filledCount} filled, ${emptyIndices.length} empty, question numbers: [${questionNumbers.join(', ')}]`);
 
         // Cascading: at least one filled, at least one empty, and we have question numbers
         if (filledCount > 0 && emptyIndices.length > 0 && questionNumbers.length > 1) {
           // Find the highest question number (likely the cascaded one)
           const maxQuestionNum = Math.max(...questionNumbers);
+          debugLog.push(`✅ CASCADING DETECTED - Question ${maxQuestionNum} is empty while earlier questions are filled`);
           return {
             hasCascading: true,
             emptyIndex: emptyIndices[0], // First empty dropdown
             questionNumber: maxQuestionNum,
-            message: `Found cascading dropdown - Question ${maxQuestionNum} is empty while earlier questions are filled`
+            message: `Found cascading dropdown - Question ${maxQuestionNum} is empty while earlier questions are filled`,
+            debug: debugLog,
+            dropdownStates
           };
         }
 
-        return { hasCascading: false };
-      }).catch(() => ({ hasCascading: false }));
+        debugLog.push('❌ NOT cascading (criteria not met)');
+        return { hasCascading: false, debug: debugLog, dropdownStates };
+      }).catch(e => ({ hasCascading: false, debug: [`Error: ${e.message}`] }));
+
+      // Log cascading dropdown analysis
+      console.log('   [CASCADING DROPDOWN DEBUG]');
+      if (cascadingDropdownInfo.debug) {
+        cascadingDropdownInfo.debug.forEach(line => console.log(`      ${line}`));
+      }
 
       if (cascadingDropdownInfo.hasCascading) {
         console.log(`   ⚠️  ${cascadingDropdownInfo.message}`);
@@ -1074,22 +1132,64 @@ Be concise. Focus on the NEXT action needed.`
 
       // SECOND: Check for any empty dropdown (non-cascading)
       if (!selectionSuccess) {
-        const hasEmptyDropdown = await this.page.evaluate(() => {
+        const dropdownDebugInfo = await this.page.evaluate(() => {
           const dropdowns = document.querySelectorAll('[role="combobox"], select, [class*="dropdown"], .MuiAutocomplete-root');
-          for (const dropdown of dropdowns) {
+          const debugLog = [];
+          debugLog.push(`Found ${dropdowns.length} potential dropdowns`);
+
+          let hasEmpty = false;
+          let emptyDropdownInfo = null;
+
+          dropdowns.forEach((dropdown, idx) => {
+            const visible = dropdown.offsetParent !== null;
             const text = dropdown.textContent || dropdown.value || '';
             const input = dropdown.querySelector ? dropdown.querySelector('input') : null;
             const inputValue = input?.value || '';
+            const hasPlaceholder = text.toLowerCase().includes('please select');
+            const isEmpty = inputValue === '';
 
-            if ((text.toLowerCase().includes('please select') || inputValue === '') &&
-                dropdown.offsetParent !== null) {
-              return true;
+            const info = {
+              idx,
+              tagName: dropdown.tagName,
+              role: dropdown.getAttribute('role'),
+              visible,
+              hasPlaceholder,
+              isEmpty,
+              inputValue: inputValue.slice(0, 30),
+              textPreview: text.slice(0, 50).replace(/\n/g, ' ')
+            };
+
+            if (!visible) {
+              debugLog.push(`  Dropdown ${idx}: NOT VISIBLE - ${info.tagName}`);
+            } else if (hasPlaceholder && isEmpty) {
+              debugLog.push(`  Dropdown ${idx}: ✅ MATCHES (empty with placeholder) - ${info.textPreview}`);
+              if (!hasEmpty) {
+                hasEmpty = true;
+                emptyDropdownInfo = info;
+              }
+            } else if (isEmpty) {
+              debugLog.push(`  Dropdown ${idx}: Empty but no placeholder - ${info.textPreview}`);
+            } else {
+              debugLog.push(`  Dropdown ${idx}: Has value "${info.inputValue}"`);
             }
-          }
-          return false;
-        }).catch(() => false);
+          });
 
-        if (hasEmptyDropdown) {
+          debugLog.push(`Result: ${hasEmpty ? 'FOUND empty dropdown' : 'NO empty dropdown'}`);
+
+          return {
+            hasEmptyDropdown: hasEmpty,
+            emptyDropdownInfo,
+            debug: debugLog
+          };
+        }).catch(e => ({ hasEmptyDropdown: false, debug: [`Error: ${e.message}`] }));
+
+        // Log dropdown detection analysis
+        console.log('   [EMPTY DROPDOWN DEBUG]');
+        if (dropdownDebugInfo.debug) {
+          dropdownDebugInfo.debug.forEach(line => console.log(`      ${line}`));
+        }
+
+        if (dropdownDebugInfo.hasEmptyDropdown) {
           console.log('   Found empty dropdown with "Please select" - using searchable dropdown strategy...');
           try {
             await this.act('Click the dropdown input field that says "Please select", type "Agriculture" into it, wait for the options to load, then click the first option that appears');
@@ -1099,91 +1199,121 @@ Be concise. Focus on the NEXT action needed.`
           } catch (e) {
             console.log(`   ⚠️  Searchable dropdown strategy failed: ${e.message}`);
           }
+        } else {
+          console.log('   No empty dropdown found, continuing to next strategy...');
         }
       }
 
-      // SECOND: Try direct selectors (FAST & RELIABLE!)
+      // THIRD: Try direct selectors (FAST & RELIABLE!)
       if (!selectionSuccess) {
-      const directSelectors = [
-        // Card-style with radio buttons (most common on journey)
-        'label:has(input[type="radio"])',
-        'div[role="radio"]',
-        'button[role="radio"]',
-        // Card containers
-        '[class*="card"][class*="option"]',
-        '[class*="choice"]',
-        // List items
-        'li[role="option"]',
-        '[role="listbox"] > *',
-        // Yes/No buttons
-        'button:has-text("Yes")',
-        'button:has-text("No")'
-      ];
+        console.log('   [DIRECT SELECTOR DEBUG]');
+        const directSelectors = [
+          // Card-style with radio buttons (most common on journey)
+          'label:has(input[type="radio"])',
+          'div[role="radio"]',
+          'button[role="radio"]',
+          // Card containers
+          '[class*="card"][class*="option"]',
+          '[class*="choice"]',
+          // List items
+          'li[role="option"]',
+          '[role="listbox"] > *',
+          // Yes/No buttons
+          'button:has-text("Yes")',
+          'button:has-text("No")'
+        ];
 
-      for (const selector of directSelectors) {
-        try {
-          const elements = await this.page.locator(selector);
-          const count = await elements.count();
-          if (count > 0) {
-            const firstElement = elements.first();
-            const isVisible = await firstElement.isVisible({ timeout: 500 }).catch(() => false);
-            if (isVisible) {
-              await firstElement.click();
-              selectionSuccess = true;
-              console.log(`   ✅ Selected via direct selector (${selector})`);
-              break;
+        for (const selector of directSelectors) {
+          try {
+            const elements = await this.page.locator(selector);
+            const count = await elements.count();
+            console.log(`      Trying "${selector}" - found ${count} element(s)`);
+
+            if (count > 0) {
+              const firstElement = elements.first();
+              const isVisible = await firstElement.isVisible({ timeout: 500 }).catch(() => false);
+              console.log(`      First element visible: ${isVisible}`);
+
+              if (isVisible) {
+                await firstElement.click();
+                selectionSuccess = true;
+                console.log(`      ✅ SUCCESS - Selected via "${selector}"`);
+                break;
+              }
             }
+          } catch (e) {
+            console.log(`      ⚠️  Error with "${selector}": ${e.message}`);
+            continue;
           }
-        } catch (e) {
-          continue;
         }
-      }
+
+        if (!selectionSuccess) {
+          console.log('      ❌ All direct selectors failed');
+        }
       }
 
       // FALLBACK: Use AI if direct selectors didn't work
       if (!selectionSuccess) {
-        console.log('   Direct selectors failed, trying vision-guided approach...');
+        console.log('   [VISION AI DEBUG]');
+        console.log('      All previous strategies failed, trying vision-guided approach...');
 
         // Use Claude's vision to understand what we're looking at
         if (useVisionAI) {
+          console.log('      Capturing full-page screenshot for vision analysis...');
           const analysis = await this.analyzeJourneyPageWithVision();
 
+          console.log('      Vision analysis result:', JSON.stringify({
+            hasBlockingModal: analysis?.hasBlockingModal || false,
+            nextButtonDisabled: analysis?.nextButtonDisabled || false,
+            unfilledFieldsCount: analysis?.unfilledFields?.length || 0,
+            hasRecommendation: !!analysis?.recommendation
+          }, null, 2));
+
           if (analysis && analysis.hasBlockingModal) {
-            console.log('   Vision detected blocking modal - attempting to close...');
+            console.log('      ⚠️  Vision detected blocking modal - attempting to close...');
             await this.closeModals();
             await this.wait(WAIT_TIMES.medium);
           }
 
           // CRITICAL: If Next button is disabled, there are unfilled required fields
           if (analysis && analysis.nextButtonDisabled && analysis.unfilledFields && analysis.unfilledFields.length > 0) {
-            console.log(`   ⚠️  Cannot proceed - ${analysis.unfilledFields.length} required fields still empty`);
-            console.log(`   🎯 Focusing on unfilled fields: ${analysis.unfilledFields[0]}`);
+            console.log(`      ⚠️  Cannot proceed - ${analysis.unfilledFields.length} required fields still empty`);
+            console.log(`      🎯 Unfilled fields: ${JSON.stringify(analysis.unfilledFields)}`);
+            console.log(`      📋 Recommendation: ${analysis.recommendation}`);
 
             // The recommendation should target the first unfilled field
             if (analysis.recommendation) {
               try {
                 await this.act(analysis.recommendation);
                 selectionSuccess = true;
-                console.log(`   ✅ Filled required field via vision: ${analysis.recommendation}`);
+                console.log(`      ✅ Filled required field via vision`);
               } catch (e) {
-                console.log(`   ⚠️  Failed to fill required field: ${e.message}`);
+                console.log(`      ❌ Failed to fill required field: ${e.message}`);
               }
             }
           } else if (analysis && analysis.recommendation) {
             // Normal case: no disabled button, proceed with recommendation
+            console.log(`      📋 Vision recommendation: ${analysis.recommendation}`);
             try {
               await this.act(analysis.recommendation);
               selectionSuccess = true;
-              console.log(`   ✅ Selected via vision guidance: ${analysis.recommendation}`);
+              console.log(`      ✅ Selected via vision guidance`);
             } catch (e) {
-              console.log(`   ⚠️  Vision-guided action failed: ${e.message}`);
+              console.log(`      ❌ Vision-guided action failed: ${e.message}`);
             }
+          } else {
+            console.log('      ⚠️  Vision analysis did not provide recommendation');
           }
+        } else {
+          console.log('      Vision AI disabled, skipping...');
         }
+      }
 
         // Final fallback: Try generic AI strategies
         if (!selectionSuccess) {
-          console.log('   Trying generic AI fallback strategies...');
+          console.log('   [GENERIC AI FALLBACK DEBUG]');
+          console.log('      All detection strategies failed, trying generic AI actions...');
+
           const selectionStrategies = [
             // Searchable dropdown - NAICS industry codes
             'Click the dropdown that says "Please select", type "Agriculture", then click the first option that appears',
@@ -1197,26 +1327,41 @@ Be concise. Focus on the NEXT action needed.`
             'Click the first selectable text option under the question'
           ];
 
-          for (const strategy of selectionStrategies) {
+          for (let i = 0; i < selectionStrategies.length; i++) {
+            const strategy = selectionStrategies[i];
+            console.log(`      Trying strategy ${i + 1}/${selectionStrategies.length}: "${strategy.slice(0, 60)}..."`);
+
             try {
               await this.act(strategy);
               selectionSuccess = true;
-              console.log(`   Selected via AI: ${strategy}`);
+              console.log(`      ✅ SUCCESS with strategy ${i + 1}`);
               break;
             } catch (e) {
+              console.log(`      ❌ Strategy ${i + 1} failed: ${e.message}`);
               continue;
             }
           }
 
           if (!selectionSuccess) {
-            console.log('   Could not select option - trying generic action');
-            await this.act('Click any selectable option or fill any input field on this page');
+            console.log('      All strategies exhausted - trying final generic action...');
+            try {
+              await this.act('Click any selectable option or fill any input field on this page');
+              console.log('      ✅ Generic action completed');
+            } catch (e) {
+              console.log(`      ❌ Final generic action failed: ${e.message}`);
+            }
           }
         }
       }
     }
 
     await this.wait(WAIT_TIMES.medium);
+
+    // Summary of decision path taken
+    console.log('   ═══════════════════════════════════════════════');
+    console.log(`   📊 RESULT: ${selectionSuccess ? '✅ Successfully handled page' : '⚠️  No action taken'}`);
+    console.log('   ═══════════════════════════════════════════════');
+    console.log('');
 
     // Now click Next (should be enabled after filling/selecting)
     await this.act('Click the "Next" button');
