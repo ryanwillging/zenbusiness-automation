@@ -146,10 +146,20 @@
       "error": "CAPTCHA timeout",
       "steps": 0,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-25T02:26:15.011Z",
+      "persona": "Daniel Patel",
+      "state": "Colorado",
+      "business": "Prime Co.",
+      "finalUrl": "https://www.dev.zenbusiness.com/shop/llc/rush-filing",
+      "error": "Did not reach confirmation page",
+      "steps": 17,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 12,
+    "Did not reach confirmation page": 13,
     "CAPTCHA timeout": 3
   }
 }

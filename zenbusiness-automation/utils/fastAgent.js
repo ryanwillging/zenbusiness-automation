@@ -138,10 +138,20 @@ export class FastAgent {
 
     // First, check if any modal/dialog is visible
     const hasModal = await this.page.evaluate(() => {
+      // Check standard modals/dialogs
       const modals = document.querySelectorAll('[role="dialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
       for (const modal of modals) {
         if (modal.offsetParent !== null) return true;
       }
+
+      // Check for cookie consent modals (often don't have role="dialog")
+      const cookieModals = document.querySelectorAll('[class*="cookie" i], [id*="cookie" i], [class*="consent" i], [id*="consent" i]');
+      for (const modal of cookieModals) {
+        if (modal.offsetParent !== null && modal.textContent.toLowerCase().includes('cookie')) {
+          return true;
+        }
+      }
+
       return false;
     }).catch(() => false);
 
