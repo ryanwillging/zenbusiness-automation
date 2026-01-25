@@ -1309,47 +1309,46 @@ Be concise. Focus on the NEXT action needed.`
         }
       }
 
-        // Final fallback: Try generic AI strategies
-        if (!selectionSuccess) {
-          console.log('   [GENERIC AI FALLBACK DEBUG]');
-          console.log('      All detection strategies failed, trying generic AI actions...');
+      // Final fallback: Try generic AI strategies
+      if (!selectionSuccess) {
+        console.log('   [GENERIC AI FALLBACK DEBUG]');
+        console.log('      All detection strategies failed, trying generic AI actions...');
 
-          const selectionStrategies = [
-            // Searchable dropdown - NAICS industry codes
-            'Click the dropdown that says "Please select", type "Agriculture", then click the first option that appears',
-            // List/menu style - NAICS codes, industries, etc.
-            'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
-            // Card style - white rectangular cards
-            'Click on the white card containing the first answer option',
-            // Radio button style
-            'Click the empty circle or radio button on the left side of the first answer',
-            // Direct text click
-            'Click the first selectable text option under the question'
-          ];
+        const selectionStrategies = [
+          // Searchable dropdown - NAICS industry codes
+          'Click the dropdown that says "Please select", type "Agriculture", then click the first option that appears',
+          // List/menu style - NAICS codes, industries, etc.
+          'Click the first list item option (like "Agriculture" or the topmost selectable item in the list)',
+          // Card style - white rectangular cards
+          'Click on the white card containing the first answer option',
+          // Radio button style
+          'Click the empty circle or radio button on the left side of the first answer',
+          // Direct text click
+          'Click the first selectable text option under the question'
+        ];
 
-          for (let i = 0; i < selectionStrategies.length; i++) {
-            const strategy = selectionStrategies[i];
-            console.log(`      Trying strategy ${i + 1}/${selectionStrategies.length}: "${strategy.slice(0, 60)}..."`);
+        for (let i = 0; i < selectionStrategies.length; i++) {
+          const strategy = selectionStrategies[i];
+          console.log(`      Trying strategy ${i + 1}/${selectionStrategies.length}: "${strategy.slice(0, 60)}..."`);
 
-            try {
-              await this.act(strategy);
-              selectionSuccess = true;
-              console.log(`      ✅ SUCCESS with strategy ${i + 1}`);
-              break;
-            } catch (e) {
-              console.log(`      ❌ Strategy ${i + 1} failed: ${e.message}`);
-              continue;
-            }
+          try {
+            await this.act(strategy);
+            selectionSuccess = true;
+            console.log(`      ✅ SUCCESS with strategy ${i + 1}`);
+            break;
+          } catch (e) {
+            console.log(`      ❌ Strategy ${i + 1} failed: ${e.message}`);
+            continue;
           }
+        }
 
-          if (!selectionSuccess) {
-            console.log('      All strategies exhausted - trying final generic action...');
-            try {
-              await this.act('Click any selectable option or fill any input field on this page');
-              console.log('      ✅ Generic action completed');
-            } catch (e) {
-              console.log(`      ❌ Final generic action failed: ${e.message}`);
-            }
+        if (!selectionSuccess) {
+          console.log('      All strategies exhausted - trying final generic action...');
+          try {
+            await this.act('Click any selectable option or fill any input field on this page');
+            console.log('      ✅ Generic action completed');
+          } catch (e) {
+            console.log(`      ❌ Final generic action failed: ${e.message}`);
           }
         }
       }

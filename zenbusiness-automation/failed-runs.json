@@ -137,10 +137,19 @@
       "error": "CAPTCHA timeout",
       "steps": 0,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-25T02:23:47.254Z",
+      "persona": "Rachel Taylor",
+      "state": "New York",
+      "business": "Eco-friendly Cleaning Service",
+      "error": "CAPTCHA timeout",
+      "steps": 0,
+      "screenshotFolder": null
     }
   ],
   "summary": {
     "Did not reach confirmation page": 12,
-    "CAPTCHA timeout": 2
+    "CAPTCHA timeout": 3
   }
 }
