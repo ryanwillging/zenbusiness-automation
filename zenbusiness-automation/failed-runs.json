@@ -156,10 +156,20 @@
       "error": "Did not reach confirmation page",
       "steps": 17,
       "screenshotFolder": null
+    },
+    {
+      "timestamp": "2026-01-25T02:35:43.107Z",
+      "persona": "Christopher Taylor",
+      "state": "Nevada",
+      "business": "Summit Group",
+      "finalUrl": "https://www.dev.zenbusiness.com/f/journey",
+      "error": "Did not reach confirmation page",
+      "steps": 76,
+      "screenshotFolder": null
     }
   ],
   "summary": {
-    "Did not reach confirmation page": 13,
+    "Did not reach confirmation page": 14,
     "CAPTCHA timeout": 3
   }
 }

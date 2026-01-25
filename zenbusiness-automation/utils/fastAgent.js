@@ -1013,6 +1013,7 @@ Be concise. Focus on the NEXT action needed.`
     }
 
     const hasTextInput = textInputDebugInfo.hasTextInput;
+    let selectionSuccess = false;  // Declare here to be accessible in both branches and result summary
 
     if (hasTextInput) {
       console.log('   Found text input field - filling with business name...');
@@ -1022,12 +1023,11 @@ Be concise. Focus on the NEXT action needed.`
         // Fall back to AI
         await this.act(`Type "${this.businessDetails.businessName}" into the text input field`);
       }
+      selectionSuccess = true;  // Mark as successful if we filled the text input
       await this.wait(WAIT_TIMES.medium);
     } else {
       // Try selection strategies for multiple choice / list questions
       console.log('   Looking for selectable options...');
-
-      let selectionSuccess = false;
 
       // FIRST: Check for Material-UI cascading dropdowns (ZenBusiness-specific)
       // Pattern: Multiple numbered questions (1., 2., etc.) where first is filled but second is "Please select"
