@@ -966,6 +966,14 @@ Be concise. Focus on the NEXT action needed.`
       const debugLog = [];
       debugLog.push(`Found ${inputs.length} total inputs`);
 
+      // CRITICAL: Check if page contains "Please select" text - if so, it's a dropdown page, not text input
+      const pageText = document.body.textContent;
+      const hasPleasSelect = pageText.includes('Please select') || pageText.includes('please select');
+      if (hasPleasSelect) {
+        debugLog.push('⚠️  Page contains "Please select" - this is a dropdown selection page, not text input');
+        return { hasTextInput: false, debug: debugLog, reason: 'Please select text detected' };
+      }
+
       let foundTextInput = false;
       for (let i = 0; i < inputs.length; i++) {
         const input = inputs[i];
@@ -976,12 +984,18 @@ Be concise. Focus on the NEXT action needed.`
         const hasValue = !!input.value;
         const isDisabled = input.disabled;
 
+        // Additional check: Is there a dropdown arrow or "Please select" near this input?
+        const parent = input.parentElement;
+        const parentText = parent?.textContent || '';
+        const hasDropdownIndicator = parentText.includes('▼') || parentText.includes('Please select');
+
         const info = {
           tagName: input.tagName,
           type: input.type || 'none',
           role: role,
           ariaAutocomplete: ariaAuto,
           inMuiAutocomplete: !!inMUI,
+          hasDropdownIndicator: hasDropdownIndicator,
           visible: visible,
           hasValue: hasValue,
           disabled: isDisabled,
@@ -989,7 +1003,7 @@ Be concise. Focus on the NEXT action needed.`
         };
 
         // Skip if it's a combobox/autocomplete (dropdown, not text input)
-        if (role === 'combobox' || ariaAuto || inMUI) {
+        if (role === 'combobox' || ariaAuto || inMUI || hasDropdownIndicator) {
           debugLog.push(`Input ${i}: SKIPPED - ${JSON.stringify(info)}`);
           continue;
         }
